@@ -117,7 +117,8 @@
         <label class="inline-flex items-center gap-2 text-xs text-slate-600"><input type="checkbox" id="f-noteacher"> الحصص التي بلا اسم مدرس فقط</label>
       </div>
       <div id="filter-summary" class="text-xs font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-2"></div>
-      <div class="bg-white rounded-2xl border border-slate-200 overflow-x-auto custom-scrollbar">
+      <div id="filter-cards" class="md:hidden space-y-2"></div>
+      <div class="hidden md:block bg-white rounded-2xl border border-slate-200 overflow-x-auto custom-scrollbar">
         <table class="w-full text-xs text-right">
           <thead class="bg-slate-50 text-slate-600"><tr><th class="p-3">المدرسة</th><th class="p-3">اليوم</th><th class="p-3">الحصة</th><th class="p-3">الصف</th><th class="p-3">المادة</th><th class="p-3">المدرس</th></tr></thead>
           <tbody id="filter-body" class="divide-y divide-slate-100"></tbody>
@@ -161,6 +162,20 @@
     document.getElementById('filter-body').innerHTML = shown.map(r =>
       `<tr class="hover:bg-slate-50"><td class="p-3 font-semibold">${esc(r.school)}</td><td class="p-3">${esc(r.day)}</td><td class="p-3">${r.period || '—'}</td><td class="p-3">${esc(r.grade)}</td><td class="p-3">${esc(r.subject)}</td><td class="p-3">${esc(r.teacher) || '<span class="text-rose-400">—</span>'}</td></tr>`).join('')
       || '<tr><td colspan="6" class="p-6 text-center text-slate-400">لا توجد نتائج مطابقة</td></tr>';
+    const oneSchool = document.getElementById('f-school').value;
+    document.getElementById('filter-cards').innerHTML = shown.map(r => `
+      <div class="bg-white rounded-2xl border border-slate-200 p-3 shadow-xs active:scale-[.99] transition">
+        <div class="flex items-center justify-between gap-2 mb-1.5">
+          <div class="flex items-center gap-1.5">
+            <span class="bg-emerald-600 text-white text-[11px] font-bold rounded-lg px-2 py-1">الحصة ${r.period || '—'}</span>
+            <span class="bg-slate-100 text-slate-700 text-[11px] font-bold rounded-lg px-2 py-1">${esc(r.day)}</span>
+          </div>
+          <span class="text-[11px] text-indigo-700 bg-indigo-50 rounded-lg px-2 py-1 font-semibold">${esc(r.grade)}</span>
+        </div>
+        <div class="text-sm font-bold text-slate-900">${esc(r.subject) || '—'}</div>
+        <div class="text-xs mt-1 ${r.teacher ? 'text-slate-600' : 'text-rose-500'}"><i class="fa-solid fa-user-tie ml-1"></i>${esc(r.teacher) || 'بلا اسم مدرس'}</div>
+        ${oneSchool ? '' : `<div class="text-[11px] text-slate-400 mt-1.5 border-t border-slate-100 pt-1.5"><i class="fa-solid fa-school ml-1"></i>${esc(r.school)}</div>`}
+      </div>`).join('') || '<div class="p-8 text-center text-slate-400 text-xs bg-white rounded-2xl border border-slate-200">لا توجد نتائج مطابقة</div>';
     const sc = new Set(FILTERED.map(r => r.school)).size, tc = new Set(FILTERED.map(r => r.teacher).filter(Boolean)).size;
     document.getElementById('filter-summary').textContent = `${FILTERED.length.toLocaleString('ar')} حصة — ${sc} مدرسة — ${tc} مدرس (من أصل ${FLAT.length.toLocaleString('ar')})`;
     document.getElementById('filter-more').classList.toggle('hidden', FILTERED.length <= LIMIT);
@@ -206,23 +221,24 @@
       </div>
       <div id="t-avail" class="bg-white p-3 rounded-2xl border border-slate-200 text-xs"></div>
       <div id="t-alert"></div>
-      <div class="bg-white rounded-2xl border border-slate-200 overflow-x-auto custom-scrollbar">
+      <div id="t-cards" class="md:hidden space-y-2"></div>
+      <div class="hidden md:block bg-white rounded-2xl border border-slate-200 overflow-x-auto custom-scrollbar">
         <table class="w-full text-xs text-right"><thead class="bg-slate-50 text-slate-600"><tr><th class="p-3 w-10"></th><th class="p-3">الموجه</th><th class="p-3">الاختصاص</th><th class="p-3">حصصه في المدرسة (أسبوعياً)</th><th class="p-3">حصصه يوم الزيارة</th><th class="p-3">الحالة</th></tr></thead>
         <tbody id="t-body" class="divide-y divide-slate-100"></tbody></table>
       </div>
-      <div class="flex flex-wrap items-center justify-between gap-2 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-3">
+      <div class="sticky bottom-2 z-30 shadow-lg flex flex-wrap items-center justify-between gap-2 bg-emerald-50 border border-emerald-300 rounded-2xl px-4 py-3">
         <span class="text-xs font-bold text-emerald-900">عدد أعضاء الفريق: <span id="t-count">0</span></span>
-        <div class="flex gap-2"><button onclick="clearTeam()" class="text-xs bg-white border border-slate-300 px-3 py-2 rounded-xl font-bold">إلغاء فريق هذه المدرسة</button>
-        <button onclick="saveTeam()" class="text-xs bg-emerald-600 hover:bg-emerald-700 text-white px-4 py-2 rounded-xl font-bold">حفظ الفريق</button></div>
+        <div class="flex gap-2"><button onclick="clearTeam()" class="text-xs bg-white border border-slate-300 px-3 py-2.5 rounded-xl font-bold">إلغاء الفريق</button>
+        <button onclick="saveTeam()" class="text-sm bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2.5 rounded-xl font-bold">حفظ الفريق</button></div>
       </div>
     </div>`);
     document.getElementById('t-school').addEventListener('change', () => loadTeam());
     document.getElementById('t-date').addEventListener('change', () => { const d = dayOf(document.getElementById('t-date').value); if (DAYS.slice(0, 5).includes(d)) document.getElementById('t-day').value = d; renderTeam(); });
     document.getElementById('t-day').addEventListener('change', renderTeam);
     document.getElementById('t-all').addEventListener('change', renderTeam);
-    document.getElementById('t-body').addEventListener('change', e => {
+    ['t-body', 't-cards'].forEach(id => document.getElementById(id).addEventListener('change', e => {
       if (e.target.dataset.sup) { e.target.checked ? TEAM.add(e.target.dataset.sup) : TEAM.delete(e.target.dataset.sup); renderTeam(); }
-    });
+    }));
   }
   function curSchool() { return schools.find(s => s.id === document.getElementById('t-school').value); }
   window.openTeamBuilder = function (id) {
@@ -260,6 +276,23 @@
       const badge = st.warn ? `<span class="text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-0.5">⚠ ${esc(st.warn)}</span>` : '<span class="text-emerald-700">✓ متاح</span>';
       return `<tr class="${on ? 'bg-emerald-50/60' : ''}"><td class="p-3"><input type="checkbox" data-sup="${s.id}" ${on ? 'checked' : ''}></td><td class="p-3 font-semibold">${esc(s.name)}</td><td class="p-3">${esc(s.specialty)}</td><td class="p-3">${st.weekly}</td><td class="p-3">${st.onDay ?? '—'}</td><td class="p-3">${badge}</td></tr>`;
     }).join('') || '<tr><td colspan="6" class="p-6 text-center text-slate-400">لا يوجد موجهون</td></tr>';
+    document.getElementById('t-cards').innerHTML = list.map(s => {
+      const st = supStats(s, sc), on = TEAM.has(s.id), bad = !!st.warn;
+      return `<label class="block bg-white rounded-2xl border-2 p-3 cursor-pointer transition ${on ? (bad ? 'border-amber-400 bg-amber-50/60' : 'border-emerald-500 bg-emerald-50/60') : 'border-slate-200'}">
+        <div class="flex items-start gap-3">
+          <input type="checkbox" data-sup="${s.id}" ${on ? 'checked' : ''} class="mt-1 w-6 h-6 accent-emerald-600 shrink-0">
+          <div class="flex-1 min-w-0">
+            <div class="font-bold text-sm text-slate-900">${esc(s.name)}</div>
+            <div class="text-xs text-emerald-700 font-semibold">${esc(s.specialty)}</div>
+            <div class="flex flex-wrap gap-1.5 mt-2 text-[11px]">
+              <span class="bg-slate-100 rounded-lg px-2 py-0.5">أسبوعياً: <b>${st.weekly}</b></span>
+              ${st.onDay === null ? '' : `<span class="bg-slate-100 rounded-lg px-2 py-0.5">يوم الزيارة: <b>${st.onDay}</b></span>`}
+            </div>
+            <div class="mt-2 text-[11px] ${bad ? 'text-amber-700 font-bold' : 'text-emerald-700'}">${bad ? '⚠ ' + esc(st.warn) : '✓ لديه حصص متاحة'}</div>
+          </div>
+        </div>
+      </label>`;
+    }).join('');
     document.getElementById('t-count').textContent = TEAM.size;
     const dy = document.getElementById('t-day').value, rows = (schedules[sc.id] || []).filter(r => !dy || r.day === dy);
     const specs = [...new Set(supervisors.map(s => s.specialty))].map(sp => [sp, rows.filter(r => subjRx(sp).test(n(r.subject))).length]);
@@ -289,6 +322,28 @@
     _auto();
     keep.forEach(m => { const i = distributionResults.findIndex(d => d.schoolId === m.schoolId); i >= 0 ? distributionResults[i] = m : distributionResults.push(m); });
     persistData(); renderAllViews();
+  };
+
+  // ---------- بطاقات جدول الزيارات للجوال ----------
+  const _renderDist = window.renderDistributionTable;
+  window.renderDistributionTable = function () {
+    _renderDist();
+    const box = document.getElementById('distribution-cards'); if (!box) return;
+    const g = document.getElementById('filter-dist-gender').value, q = n(document.getElementById('search-dist-school').value);
+    const rows = distributionResults.filter(r => (g === 'ALL' || r.gender === g) && (!q || n(r.schoolName + ' ' + r.zone).includes(q)));
+    box.innerHTML = rows.map(r => `
+      <div class="bg-white rounded-2xl border border-slate-200 p-3 shadow-xs">
+        <div class="flex items-start justify-between gap-2">
+          <div class="font-bold text-sm text-slate-900">${esc(r.schoolName)}</div>
+          <span class="shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full ${r.gender === 'ذكور' ? 'bg-blue-100 text-blue-800' : 'bg-rose-100 text-rose-800'}">${r.gender === 'ذكور' ? 'بنين' : 'بنات'}</span>
+        </div>
+        <div class="text-xs text-emerald-800 font-semibold mt-1"><i class="fa-solid fa-calendar-day ml-1"></i>${esc(r.visitDate || 'زيارة دورية مفتوحة')}</div>
+        <div class="mt-2 flex flex-wrap gap-1">${(r.supervisors || []).map(s => `<span class="bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-[11px]"><b>${esc(s.name)}</b> <span class="text-emerald-700">(${esc(s.specialty)})</span>${s.warn ? ' <span class="text-amber-500" title="' + esc(s.warn) + '">⚠</span>' : ''}</span>`).join('') || '<span class="text-amber-600 text-[11px]">لم يُحدَّد فريق</span>'}</div>
+        <div class="grid grid-cols-2 gap-2 mt-3">
+          <button onclick="openTeamBuilder('${r.schoolId}')" class="bg-emerald-600 text-white text-xs font-bold rounded-xl py-2.5"><i class="fa-solid fa-people-group ml-1"></i>تحديد الفريق</button>
+          <button onclick="viewSchoolScheduleModal('${r.schoolId}')" class="bg-slate-100 text-slate-700 text-xs font-bold rounded-xl py-2.5"><i class="fa-solid fa-calendar-check ml-1"></i>الحصص</button>
+        </div>
+      </div>`).join('') || '<div class="p-8 text-center text-slate-400 text-xs bg-white rounded-2xl border border-slate-200">لا يوجد جدول زيارات حالياً</div>';
   };
 
   // ---------- الإقلاع ----------
