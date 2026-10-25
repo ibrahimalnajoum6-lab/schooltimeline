@@ -575,7 +575,7 @@
         <span id="toast-msg">تمت العملية بنجاح</span>
     </div>
 
-    <script src="config.js?v=13"></script>
+    <script src="config.js?v=15"></script>
     <script>
         const SHARIA_SPECIALTIES = [
             "القرآن الكريم وعلومه",
@@ -805,12 +805,12 @@
                 if (allMode) {
                     // كل موجهي هذا الجنس في الزيارة؛ أصحاب التخصص المطلوب أولاً
                     candidatePool.slice()
-                        .sort((a, b) => (b.specialty === school.targetSpecialty) - (a.specialty === school.targetSpecialty))
+                        .sort((a, b) => (window.supHasSpec ? supHasSpec(b, school.targetSpecialty) : b.specialty === school.targetSpecialty) - (window.supHasSpec ? supHasSpec(a, school.targetSpecialty) : a.specialty === school.targetSpecialty))
                         .forEach(sup => { assignedTeam.push(sup); supervisorVisitCount[sup.id]++; });
                 }
 
                 const primaryMatch = candidatePool
-                    .filter(sup => sup.specialty === school.targetSpecialty && !usedSpecialties.has(sup.specialty))
+                    .filter(sup => (window.supHasSpec ? supHasSpec(sup, school.targetSpecialty) : sup.specialty === school.targetSpecialty) && !usedSpecialties.has(sup.specialty))
                     .sort((a, b) => supervisorVisitCount[a.id] - supervisorVisitCount[b.id])[0];
 
                 if (primaryMatch) {
@@ -1761,7 +1761,7 @@
             }, 4000);
         }
     </script>
-    <script src="data-loader.js?v=13"></script>
+    <script src="data-loader.js?v=15"></script>
     <script>
         // تحديث فوري: التسجيل + فحص النسخة الجديدة + إعادة التحميل تلقائياً
         if ('serviceWorker' in navigator) {
