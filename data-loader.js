@@ -126,6 +126,15 @@
       </div>
       <div class="text-center"><button id="filter-more" onclick="LIMIT_MORE()" class="hidden text-xs bg-slate-800 text-white px-4 py-2 rounded-xl font-bold">عرض المزيد</button></div>
     </div>`);
+    const grid = document.querySelector('#view-filter .grid'), kids = [...grid.children];
+    [0, 5].forEach(i => kids[i].classList.add('col-span-2', 'md:col-span-1'));
+    [6, 7].forEach(i => kids[i].classList.add('f-extra', 'hidden', 'md:block', 'col-span-2', 'md:col-span-1'));
+    const nt = document.getElementById('f-noteacher').parentElement; nt.classList.add('f-extra', 'hidden', 'md:inline-flex');
+    grid.insertAdjacentHTML('afterend', '<button id="f-toggle" class="md:hidden w-full text-xs font-bold text-emerald-700 bg-emerald-50 rounded-xl py-2.5">فلاتر إضافية (المدرس، بحث نصي...) ▾</button>');
+    document.getElementById('f-toggle').addEventListener('click', e => {
+      document.querySelectorAll('#view-filter .f-extra').forEach(x => x.classList.toggle('hidden'));
+      e.target.textContent = document.querySelector('#view-filter .f-extra').classList.contains('hidden') ? 'فلاتر إضافية (المدرس، بحث نصي...) ▾' : 'إخفاء الفلاتر الإضافية ▴';
+    });
     ['f-school', 'f-day', 'f-period', 'f-stage', 'f-section', 'f-noteacher'].forEach(id => document.getElementById(id).addEventListener('change', applyFilters));
     document.getElementById('f-school').addEventListener('change', refreshLists);
     let t; ['f-subject', 'f-teacher', 'f-text'].forEach(id => document.getElementById(id).addEventListener('input', () => { clearTimeout(t); t = setTimeout(applyFilters, 200); }));
@@ -226,7 +235,7 @@
         <table class="w-full text-xs text-right"><thead class="bg-slate-50 text-slate-600"><tr><th class="p-3 w-10"></th><th class="p-3">الموجه</th><th class="p-3">الاختصاص</th><th class="p-3">حصصه في المدرسة (أسبوعياً)</th><th class="p-3">حصصه يوم الزيارة</th><th class="p-3">الحالة</th></tr></thead>
         <tbody id="t-body" class="divide-y divide-slate-100"></tbody></table>
       </div>
-      <div class="sticky bottom-2 z-30 shadow-lg flex flex-wrap items-center justify-between gap-2 bg-emerald-50 border border-emerald-300 rounded-2xl px-4 py-3">
+      <div class="sticky bottom-20 md:bottom-2 z-30 shadow-lg flex flex-wrap items-center justify-between gap-2 bg-emerald-50 border border-emerald-300 rounded-2xl px-4 py-3">
         <span class="text-xs font-bold text-emerald-900">عدد أعضاء الفريق: <span id="t-count">0</span></span>
         <div class="flex gap-2"><button onclick="clearTeam()" class="text-xs bg-white border border-slate-300 px-3 py-2.5 rounded-xl font-bold">إلغاء الفريق</button>
         <button onclick="saveTeam()" class="text-sm bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2.5 rounded-xl font-bold">حفظ الفريق</button></div>
@@ -346,9 +355,46 @@
       </div>`).join('') || '<div class="p-8 text-center text-slate-400 text-xs bg-white rounded-2xl border border-slate-200">لا يوجد جدول زيارات حالياً</div>';
   };
 
+  // ---------- شريط التنقل السفلي للجوال ----------
+  function injectBottomNav() {
+    const items = [['distribution', 'fa-calendar-days', 'الزيارات'], ['team', 'fa-people-group', 'الفريق'], ['filter', 'fa-filter', 'الفلترة'], ['schedules', 'fa-table-cells', 'الحصص']];
+    document.body.insertAdjacentHTML('beforeend', `
+    <nav id="bottom-nav" class="md:hidden fixed bottom-0 inset-x-0 z-40 bg-white/95 backdrop-blur border-t border-slate-200 grid grid-cols-5 no-print" style="padding-bottom:env(safe-area-inset-bottom)">
+      ${items.map(([v, ic, l]) => `<button data-nav="${v}" class="flex flex-col items-center justify-center gap-0.5 py-2 text-slate-500"><i class="fa-solid ${ic} text-lg"></i><span class="text-[11px] font-bold">${l}</span></button>`).join('')}
+      <button data-nav="more" class="flex flex-col items-center justify-center gap-0.5 py-2 text-slate-500"><i class="fa-solid fa-ellipsis text-lg"></i><span class="text-[11px] font-bold">المزيد</span></button>
+    </nav>
+    <div id="more-sheet" class="md:hidden fixed inset-0 z-50 hidden">
+      <div class="absolute inset-0 bg-slate-900/50" data-nav="close"></div>
+      <div class="absolute bottom-0 inset-x-0 bg-white rounded-t-3xl p-4 space-y-2" style="padding-bottom:calc(16px + env(safe-area-inset-bottom))">
+        <div class="w-10 h-1.5 bg-slate-300 rounded-full mx-auto mb-2"></div>
+        ${[['supervisors', 'fa-user-tie', 'كادر الموجهين'], ['schools', 'fa-mosque', 'سجل المدارس'], ['import', 'fa-file-import', 'استيراد وتصدير Excel']].map(([v, ic, l]) =>
+          `<button data-nav="${v}" class="w-full flex items-center gap-3 bg-slate-50 rounded-2xl px-4 py-3.5 text-sm font-bold text-slate-700"><i class="fa-solid ${ic} text-emerald-600 w-5 text-center"></i>${l}</button>`).join('')}
+        <button data-nav="hero" class="w-full flex items-center gap-3 bg-slate-50 rounded-2xl px-4 py-3.5 text-sm font-bold text-slate-700"><i class="fa-solid fa-gear text-emerald-600 w-5 text-center"></i>إعدادات الجولة والجدولة التلقائية</button>
+      </div>
+    </div>`);
+    const sheet = document.getElementById('more-sheet');
+    document.body.addEventListener('click', e => {
+      const b = e.target.closest('[data-nav]'); if (!b) return;
+      const v = b.dataset.nav;
+      if (v === 'more') sheet.classList.remove('hidden');
+      else if (v === 'close') sheet.classList.add('hidden');
+      else if (v === 'hero') { document.getElementById('app-hero').classList.toggle('mobile-show'); sheet.classList.add('hidden'); window.scrollTo({ top: 0, behavior: 'smooth' }); }
+      else { sheet.classList.add('hidden'); v === 'team' ? openTeamBuilder() : switchView(v); }
+    });
+    const _sv = window.switchView;
+    window.switchView = function (v) {
+      _sv(v); window.scrollTo(0, 0);
+      document.querySelectorAll('#bottom-nav [data-nav]').forEach(b => {
+        const on = b.dataset.nav === v || (b.dataset.nav === 'more' && ['supervisors', 'schools', 'import'].includes(v));
+        b.classList.toggle('text-emerald-700', on); b.classList.toggle('text-slate-500', !on);
+      });
+    };
+    switchView('distribution');
+  }
+
   // ---------- الإقلاع ----------
   window.addEventListener('DOMContentLoaded', async () => {
-    injectTab(); injectTeamTab();
+    injectTab(); injectTeamTab(); injectBottomNav();
     if (!CFG.SCHEDULE_CSV || !CFG.SUPERVISORS_CSV) return;
     try { await loadFromSheets(); renderAllViews(); showToast('تم تحميل البيانات من Google Sheets'); }
     catch (e) { console.error(e); showToast('تعذر تحميل البيانات: ' + e.message, 'error'); }
