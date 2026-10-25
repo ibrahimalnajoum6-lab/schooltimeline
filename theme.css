@@ -80,3 +80,6 @@ main, main > *, header > div { min-width: 0; max-width: 100%; }
 #bottom-nav [data-nav] > *, #more-sheet button > * { pointer-events: none; }
 /* الحقول تبقى قابلة للتحديد والكتابة */
 input, textarea, select { -webkit-user-select: text; user-select: text; }
+
+/* ===== إصلاح: رسالة التنبيه المخفية (toast) كانت تغطي أزرار الشريط السفلي وتبتلع الضغطات ===== */
+#toast { pointer-events: none !important; -webkit-user-select: none; user-select: none; }
