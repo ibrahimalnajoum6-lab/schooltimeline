@@ -197,12 +197,14 @@
     <div id="view-team" class="hidden space-y-4">
       <div class="bg-white p-4 rounded-2xl border border-slate-200 space-y-3">
         <h3 class="text-base font-bold text-slate-900">تكوين فريق الزيارة (تحدده أنت حسب المتاح في المدرسة)</h3>
-        <div class="grid grid-cols-1 md:grid-cols-3 gap-3">
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
           ${field('المدرسة', `<select id="t-school" class="${inp}"></select>`)}
-          ${field('تاريخ الزيارة', `<input type="date" id="t-date" class="${inp}">`)}
+          ${field('يوم الزيارة', `<select id="t-day" class="${inp}">${'<option value="">— اختر اليوم —</option>' + DAYS.slice(0, 5).map(d => `<option>${d}</option>`).join('')}</select>`)}
+          ${field('تاريخ الزيارة (اختياري)', `<input type="date" id="t-date" class="${inp}">`)}
           ${field('عرض الموجهين', `<label class="flex items-center gap-2 text-xs pt-2"><input type="checkbox" id="t-all"> كل الموجهين (وليس نفس جنس المدرسة فقط)</label>`)}
         </div>
       </div>
+      <div id="t-avail" class="bg-white p-3 rounded-2xl border border-slate-200 text-xs"></div>
       <div id="t-alert"></div>
       <div class="bg-white rounded-2xl border border-slate-200 overflow-x-auto custom-scrollbar">
         <table class="w-full text-xs text-right"><thead class="bg-slate-50 text-slate-600"><tr><th class="p-3 w-10"></th><th class="p-3">الموجه</th><th class="p-3">الاختصاص</th><th class="p-3">حصصه في المدرسة (أسبوعياً)</th><th class="p-3">حصصه يوم الزيارة</th><th class="p-3">الحالة</th></tr></thead>
@@ -215,13 +217,12 @@
       </div>
     </div>`);
     document.getElementById('t-school').addEventListener('change', () => loadTeam());
-    document.getElementById('t-date').addEventListener('change', renderTeam);
+    document.getElementById('t-date').addEventListener('change', () => { const d = dayOf(document.getElementById('t-date').value); if (DAYS.slice(0, 5).includes(d)) document.getElementById('t-day').value = d; renderTeam(); });
+    document.getElementById('t-day').addEventListener('change', renderTeam);
     document.getElementById('t-all').addEventListener('change', renderTeam);
     document.getElementById('t-body').addEventListener('change', e => {
       if (e.target.dataset.sup) { e.target.checked ? TEAM.add(e.target.dataset.sup) : TEAM.delete(e.target.dataset.sup); renderTeam(); }
     });
-    const lbl = document.getElementById('team-size-per-school')?.previousElementSibling;
-    if (lbl) lbl.textContent = 'حجم الفريق (للجدولة التلقائية فقط)';
   }
   function curSchool() { return schools.find(s => s.id === document.getElementById('t-school').value); }
   window.openTeamBuilder = function (id) {
@@ -233,12 +234,14 @@
   function loadTeam() {
     const e = distributionResults.find(d => d.schoolId === document.getElementById('t-school').value);
     TEAM = new Set((e?.supervisors || []).map(s => s.id));
-    document.getElementById('t-date').value = e?.visitDate || '';
+    const vd = e?.visitDate || '', isDay = DAYS.includes(vd);
+    document.getElementById('t-date').value = isDay ? '' : vd;
+    const d = isDay ? vd : dayOf(vd); document.getElementById('t-day').value = DAYS.slice(0, 5).includes(d) ? d : '';
     renderTeam();
   }
   function supStats(sup, school) {
     const rx = subjRx(sup.specialty), rows = (schedules[school.id] || []).filter(r => rx.test(n(r.subject)));
-    const dy = dayOf(document.getElementById('t-date').value);
+    const dy = document.getElementById('t-day').value;
     const weekly = rows.length, onDay = dy ? rows.filter(r => r.day === dy).length : null;
     const days = [...new Set(rows.map(r => r.day))];
     let warn = '';
@@ -258,13 +261,17 @@
       return `<tr class="${on ? 'bg-emerald-50/60' : ''}"><td class="p-3"><input type="checkbox" data-sup="${s.id}" ${on ? 'checked' : ''}></td><td class="p-3 font-semibold">${esc(s.name)}</td><td class="p-3">${esc(s.specialty)}</td><td class="p-3">${st.weekly}</td><td class="p-3">${st.onDay ?? '—'}</td><td class="p-3">${badge}</td></tr>`;
     }).join('') || '<tr><td colspan="6" class="p-6 text-center text-slate-400">لا يوجد موجهون</td></tr>';
     document.getElementById('t-count').textContent = TEAM.size;
+    const dy = document.getElementById('t-day').value, rows = (schedules[sc.id] || []).filter(r => !dy || r.day === dy);
+    const specs = [...new Set(supervisors.map(s => s.specialty))].map(sp => [sp, rows.filter(r => subjRx(sp).test(n(r.subject))).length]);
+    document.getElementById('t-avail').innerHTML = `<b>المتاح في المدرسة ${dy ? 'يوم ' + dy : 'خلال الأسبوع'}:</b> ` + specs.map(([sp, c]) =>
+      `<span class="inline-block m-0.5 px-2 py-0.5 rounded-lg border ${c ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-rose-50 border-rose-200 text-rose-700'}">${esc(sp)}: ${c} حصة</span>`).join('');
     document.getElementById('t-alert').innerHTML = warns.length ? `<div class="bg-amber-50 border border-amber-300 text-amber-900 rounded-xl p-3 text-xs space-y-1"><b>تنبيه: أعضاء مختارون بلا حصص من اختصاصهم</b>${warns.map(w => `<div>• ${esc(w)}</div>`).join('')}</div>` : '';
   }
   window.saveTeam = function () {
     const sc = curSchool(); if (!sc) return;
     const team = supervisors.filter(s => TEAM.has(s.id)).map(s => ({ id: s.id, name: s.name, specialty: s.specialty, phone: s.phone, gender: s.gender, warn: supStats(s, sc).warn }));
     const entry = { schoolId: sc.id, schoolName: sc.name, gender: sc.gender, stage: sc.stage, sections: sc.sections, zone: sc.zone,
-      visitDate: document.getElementById('t-date').value, supervisors: team, manual: true };
+      visitDate: document.getElementById('t-date').value || document.getElementById('t-day').value, supervisors: team, manual: true };
     const i = distributionResults.findIndex(d => d.schoolId === sc.id);
     i >= 0 ? distributionResults[i] = entry : distributionResults.push(entry);
     persistData(); renderAllViews();

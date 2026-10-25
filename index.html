@@ -129,12 +129,9 @@
                         <input type="date" id="plan-end-date" class="w-full bg-white/20 border border-white/20 text-white rounded-xl px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-400">
                     </div>
                     <div class="bg-white/10 backdrop-blur-md rounded-2xl p-3 border border-white/10">
-                        <label class="block text-[11px] font-semibold text-emerald-200 mb-1">حجم الفريق لكل زيارة</label>
-                        <select id="team-size-per-school" class="w-full bg-white/20 border border-white/20 text-slate-100 rounded-xl px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-400">
-                            <option value="1" class="text-slate-800">موجه واحد لكل زيارة</option>
-                            <option value="2" class="text-slate-800" selected>فريق ثنائي (تخصصين)</option>
-                            <option value="3" class="text-slate-800">فريق ثلاثي (3 تخصصات)</option>
-                        </select>
+                        <label class="block text-[11px] font-semibold text-emerald-200 mb-1">فريق الزيارة</label>
+                        <select id="team-size-per-school" class="hidden"><option value="2" selected>2</option></select>
+                        <button onclick="openTeamBuilder()" class="w-full bg-emerald-500 hover:bg-emerald-400 text-white rounded-xl px-3 py-2 text-xs font-bold flex items-center justify-center gap-2"><i class="fa-solid fa-people-group"></i><span>حدّد الفريق حسب حصص المدرسة واليوم</span></button>
                     </div>
                 </div>
             </div>
