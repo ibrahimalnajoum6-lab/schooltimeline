@@ -433,7 +433,8 @@
       i++;
       out.push('', `${NUM[i - 1] || i + '.'} *${r.schoolName}*`);
       out.push('📅 ' + fmtDate(r.visitDate));
-      const team = (r.supervisors || []).map(x => x.name + (x.specialty ? ' (' + x.specialty + ')' : '')).join('، ');
+      const sup = r.supervisors || [], long = sup.length > 6;
+      const team = (long ? `جميع الموجهين (${sup.length}): ` : '') + sup.map(x => x.name + (!long && x.specialty ? ' (' + x.specialty + ')' : '')).join('، ');
       out.push('👥 ' + (team || 'لم يُحدَّد الفريق بعد'));
       const warns = (r.supervisors || []).filter(x => x.warn).length;
       if (warns) out.push('⚠️ يوجد تنبيه على الفريق، يُراجع قبل الزيارة');
