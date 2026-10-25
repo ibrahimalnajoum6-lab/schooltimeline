@@ -3,6 +3,10 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#0b3b2e">
+    <link rel="manifest" href="manifest.json?v=7">
+    <link rel="icon" href="icon-192.png">
+    <link rel="apple-touch-icon" href="icon-192.png">
     <title>منظومة الإشراف والتوجيه التربوي للمدارس الشرعية</title>
     <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
@@ -82,7 +86,7 @@
             body { background: white !important; }
         }
     </style>
-    <link rel="stylesheet" href="theme.css?v=6">
+    <link rel="stylesheet" href="theme.css?v=7">
 </head>
 <body class="text-slate-800 antialiased min-h-screen flex flex-col custom-scrollbar">
 
@@ -120,9 +124,6 @@
                         <span class="hidden md:inline">طباعة</span>
                     </button>
 
-                    <button onclick="confirmResetAll()" class="p-2 text-rose-500 hover:bg-rose-50 rounded-xl transition" title="تصفير جدول الزيارات">
-                        <i class="fa-solid fa-rotate-left"></i>
-                    </button>
                 </div>
             </div>
         </div>
@@ -225,17 +226,11 @@
                     <span>جدول الحصص الأسبوعي (7 حصص)</span>
                 </button>
                 <button onclick="switchView('import')" id="tab-btn-import" class="px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold text-slate-600 hover:bg-slate-100 transition flex items-center gap-2">
-                    <i class="fa-solid fa-file-import"></i>
-                    <span>استيراد وتصدير Excel</span>
+                    <i class="fa-solid fa-cloud-arrow-down"></i>
+                    <span>التصدير والنسخ الاحتياطي</span>
                 </button>
             </div>
 
-            <div class="flex items-center gap-2">
-                <button onclick="loadSampleShariaData()" class="text-xs bg-slate-200 hover:bg-slate-300 text-slate-700 px-3 py-1.5 rounded-xl font-medium transition flex items-center gap-1">
-                    <i class="fa-solid fa-database"></i>
-                    <span>إعادة توليد البيانات النموذجية</span>
-                </button>
-            </div>
         </div>
 
         <!-- 1. عرض جدول الزيارات والمطابقة -->
@@ -377,59 +372,23 @@
 
         <!-- 5. تبويب الاستيراد والتصدير مع Excel -->
         <div id="view-import" class="hidden space-y-6">
-            <div class="grid grid-cols-1 md:grid-cols-3 gap-5">
-                
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
                 <div class="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs space-y-3">
-                    <div class="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center text-lg">
-                        <i class="fa-solid fa-users"></i>
-                    </div>
-                    <h4 class="text-sm font-bold text-slate-800">1. استيراد كادر الموجهين</h4>
-                    <p class="text-xs text-slate-500">ملف Excel يحتوي على: (اسم الموجه، الجنس [ذكر/أنثى]، التخصص، الهاتف).</p>
-                    <input type="file" id="file-supervisors" accept=".xlsx, .xls, .csv" class="block w-full text-xs text-slate-500 file:mr-0 file:ml-2 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100">
-                    <div class="flex gap-2 pt-2">
-                        <button onclick="importSupervisorsFile()" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold py-2 rounded-xl transition">
-                            قراءة الملف واستيراده
-                        </button>
-                        <button onclick="downloadSupervisorsTemplate()" class="p-2 border border-slate-200 hover:bg-slate-50 rounded-xl text-xs text-slate-600" title="تحميل قالب Excel جاهز">
-                            <i class="fa-solid fa-download"></i>
-                        </button>
+                    <div class="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center text-lg"><i class="fa-solid fa-shield-halved"></i></div>
+                    <h4 class="text-sm font-bold text-slate-800">نسخة احتياطية لخطة الزيارات</h4>
+                    <p class="text-xs text-slate-500">خطة الزيارات محفوظة في هذا المتصفح فقط. نزّل نسخة احتياطية بانتظام، واستعدها عند تغيير الجهاز أو مسح بيانات المتصفح.</p>
+                    <div class="flex gap-2 pt-1">
+                        <button onclick="exportBackup()" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold py-2.5 rounded-xl transition"><i class="fa-solid fa-download ml-1"></i>تنزيل نسخة احتياطية</button>
+                        <button onclick="document.getElementById('file-backup').click()" class="flex-1 border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-bold py-2.5 rounded-xl transition"><i class="fa-solid fa-upload ml-1"></i>استعادة نسخة</button>
+                        <input type="file" id="file-backup" accept=".json,application/json" class="hidden" onchange="restoreBackup(this)">
                     </div>
                 </div>
-
-                <div class="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs space-y-3">
-                    <div class="w-10 h-10 rounded-xl bg-emerald-50 text-emerald-600 flex items-center justify-center text-lg">
-                        <i class="fa-solid fa-school"></i>
-                    </div>
-                    <h4 class="text-sm font-bold text-slate-800">2. استيراد المدارس</h4>
-                    <p class="text-xs text-slate-500">ملف Excel يحتوي على: (اسم المدرسة، الجنس [ذكور/إناث]، المرحلة، الشعب، المنطقة، التخصص المطلوب)</p>
-                    <input type="file" id="file-schools" accept=".xlsx, .xls, .csv" class="block w-full text-xs text-slate-500 file:mr-0 file:ml-2 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100">
-                    <div class="flex gap-2 pt-2">
-                        <button onclick="importSchoolsFile()" class="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold py-2 rounded-xl transition">
-                            قراءة الملف واستيراده
-                        </button>
-                        <button onclick="downloadSchoolsTemplate()" class="p-2 border border-slate-200 hover:bg-slate-50 rounded-xl text-xs text-slate-600" title="تحميل قالب Excel جاهز">
-                            <i class="fa-solid fa-download"></i>
-                        </button>
-                    </div>
+                <div class="bg-white rounded-2xl border border-rose-200 p-5 shadow-xs space-y-3">
+                    <div class="w-10 h-10 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center text-lg"><i class="fa-solid fa-triangle-exclamation"></i></div>
+                    <h4 class="text-sm font-bold text-slate-800">تصفير خطة الزيارات</h4>
+                    <p class="text-xs text-slate-500">يفرّغ جدول الزيارات والفرق المحددة. تُنزَّل نسخة احتياطية تلقائياً قبل التصفير.</p>
+                    <button onclick="confirmResetAll()" class="w-full bg-rose-50 border border-rose-200 hover:bg-rose-100 text-rose-700 text-xs font-bold py-2.5 rounded-xl transition"><i class="fa-solid fa-rotate-left ml-1"></i>تصفير الخطة</button>
                 </div>
-
-                <div class="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs space-y-3">
-                    <div class="w-10 h-10 rounded-xl bg-amber-50 text-amber-600 flex items-center justify-center text-lg">
-                        <i class="fa-solid fa-calendar-days"></i>
-                    </div>
-                    <h4 class="text-sm font-bold text-slate-800">3. استيراد جدول الحصص الأسبوعي</h4>
-                    <p class="text-xs text-slate-500">ملف يربط كل مدرسة وشعبة بالحصص (1 إلى 7) والمواد لمتابعتها ميدانياً</p>
-                    <input type="file" id="file-schedules" accept=".xlsx, .xls, .csv" class="block w-full text-xs text-slate-500 file:mr-0 file:ml-2 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-semibold file:bg-amber-50 file:text-amber-700 hover:file:bg-amber-100">
-                    <div class="flex gap-2 pt-2">
-                        <button onclick="importSchedulesFile()" class="flex-1 bg-amber-600 hover:bg-amber-700 text-white text-xs font-bold py-2 rounded-xl transition">
-                            قراءة واستيراد الحصص
-                        </button>
-                        <button onclick="downloadSchedulesTemplate()" class="p-2 border border-slate-200 hover:bg-slate-50 rounded-xl text-xs text-slate-600" title="تحميل قالب جدول الحصص بالمدارس الحالية">
-                            <i class="fa-solid fa-download"></i>
-                        </button>
-                    </div>
-                </div>
-
             </div>
 
             <!-- بطاقة التصدير الشامل -->
@@ -613,7 +572,7 @@
         <span id="toast-msg">تمت العملية بنجاح</span>
     </div>
 
-    <script src="config.js?v=6"></script>
+    <script src="config.js?v=7"></script>
     <script>
         const SHARIA_SPECIALTIES = [
             "القرآن الكريم وعلومه",
@@ -1715,13 +1674,44 @@
             }
         }
 
+        function exportBackup(silent) {
+            const data = { app: 'supervision-plan', v: 1, date: new Date().toISOString(), distributionResults };
+            const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = 'نسخة_خطة_الزيارات_' + new Date().toISOString().slice(0, 10) + '.json';
+            document.body.appendChild(a); a.click(); a.remove();
+            setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+            if (!silent) showToast('تم تنزيل النسخة الاحتياطية');
+        }
+
+        function restoreBackup(input) {
+            const f = input.files && input.files[0]; if (!f) return;
+            const r = new FileReader();
+            r.onload = () => {
+                try {
+                    const d = JSON.parse(r.result);
+                    if (!d || d.app !== 'supervision-plan' || !Array.isArray(d.distributionResults)) throw new Error('ملف غير صالح');
+                    const ids = new Set(schools.map(s => s.id));
+                    const ok = d.distributionResults.filter(x => ids.has(x.schoolId) && schools.find(s => s.id === x.schoolId).name === x.schoolName);
+                    if (!confirm('سيتم استبدال الخطة الحالية بـ ' + ok.length + ' زيارة من النسخة. هل تريد المتابعة؟')) return;
+                    distributionResults = ok; persistData(); renderAllViews();
+                    showToast('تمت استعادة ' + ok.length + ' زيارة');
+                } catch (e) { showToast('تعذّرت الاستعادة: ' + e.message, 'error'); }
+                input.value = '';
+            };
+            r.readAsText(f);
+        }
+
         function confirmResetAll() {
-            if (confirm("هل ترغب في إعادة ضبط خطة الزيارات وتفريغ التوزيع؟")) {
-                distributionResults = [];
-                persistData();
-                renderAllViews();
-                showToast("تم تصفير خطة الزيارات", "info");
-            }
+            if (!distributionResults.length) return showToast('الخطة فارغة أصلاً', 'info');
+            if (!confirm('سيتم تفريغ خطة الزيارات (' + distributionResults.length + ' مدرسة). ستُنزَّل نسخة احتياطية تلقائياً. متابعة؟')) return;
+            if (!confirm('تأكيد أخير: هل أنت متأكد من تصفير الخطة؟')) return;
+            exportBackup(true);
+            distributionResults = [];
+            persistData();
+            renderAllViews();
+            showToast('تم تصفير خطة الزيارات (حُفظت نسخة احتياطية)', 'info');
         }
 
         let toastTimer;
@@ -1749,13 +1739,13 @@
             }, 4000);
         }
     </script>
-    <script src="data-loader.js?v=6"></script>
+    <script src="data-loader.js?v=7"></script>
     <script>
         // تحديث فوري: التسجيل + فحص النسخة الجديدة + إعادة التحميل تلقائياً
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
                 const hadController = !!navigator.serviceWorker.controller;
-                navigator.serviceWorker.register('sw.js?v=6', { updateViaCache: 'none' }).then(reg => {
+                navigator.serviceWorker.register('sw.js?v=7', { updateViaCache: 'none' }).then(reg => {
                     reg.update();
                     document.addEventListener('visibilitychange', () => { if (!document.hidden) reg.update(); });
                 }).catch(console.error);
