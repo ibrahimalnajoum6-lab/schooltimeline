@@ -52,6 +52,30 @@
             background: #cbd5e1;
             border-radius: 9999px;
         }
+
+        @media (max-width: 767px) {
+            body { padding-bottom: calc(72px + env(safe-area-inset-bottom)); -webkit-tap-highlight-color: transparent; }
+            input, select, textarea { font-size: 16px !important; min-height: 44px; }
+            input[type=checkbox] { min-height: 0; }
+            header .h-18 { height: auto; }
+            header h1 { font-size: 15px; }
+            header p, header h1 + span { display: none !important; }
+            header button span { display: none !important; }
+            header button { min-width: 40px; min-height: 40px; }
+            main { padding-top: 12px; padding-bottom: 12px; gap: 12px; }
+            #app-tabs, #app-tabs + * { }
+            #app-tabs { display: none !important; }
+            #app-hero { display: none; }
+            #app-hero.mobile-show { display: block; }
+            #app-stats { gap: 8px; }
+            #app-stats > div { padding: 10px; gap: 8px; border-radius: 14px; }
+            #app-stats > div > div:first-child { width: 34px; height: 34px; font-size: 15px; }
+            #app-stats .text-xl { font-size: 18px; line-height: 1.2; }
+            #app-stats .text-xl .text-xs { display: none; }
+            #app-stats p.text-\[11px\] { font-size: 10.5px; }
+            #view-distribution select, #view-distribution input[type=text] { width: 100%; }
+            #toast { margin-bottom: 76px; }
+        }
         @media print {
             .no-print { display: none !important; }
             .print-only { display: block !important; }
@@ -106,7 +130,7 @@
     <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
 
         <!-- بطاقة التعريف بالنظام المعتمد -->
-        <section class="bg-gradient-to-r from-slate-900 via-slate-800 to-emerald-950 text-white rounded-3xl p-5 sm:p-6 shadow-xl no-print relative overflow-hidden">
+        <section id="app-hero" class="bg-gradient-to-r from-slate-900 via-slate-800 to-emerald-950 text-white rounded-3xl p-5 sm:p-6 shadow-xl no-print relative overflow-hidden">
             <div class="relative z-10 grid grid-cols-1 lg:grid-cols-12 gap-5 items-center">
                 <div class="lg:col-span-5 space-y-1">
                     <span class="inline-flex items-center gap-1.5 bg-emerald-500/20 text-emerald-300 text-xs px-2.5 py-1 rounded-lg border border-emerald-400/30">
@@ -138,7 +162,7 @@
         </section>
 
         <!-- لوحة الإحصائيات -->
-        <section class="grid grid-cols-2 lg:grid-cols-4 gap-3 no-print">
+        <section id="app-stats" class="grid grid-cols-2 lg:grid-cols-4 gap-3 no-print">
             <div class="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs flex items-center gap-3">
                 <div class="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center text-lg">
                     <i class="fa-solid fa-person"></i>
@@ -181,7 +205,7 @@
         </section>
 
         <!-- شريط التبويبات -->
-        <div class="flex flex-wrap items-center justify-between border-b border-slate-200 pb-2 no-print gap-2">
+        <div id="app-tabs" class="flex flex-wrap items-center justify-between border-b border-slate-200 pb-2 no-print gap-2">
             <div class="flex items-center gap-1.5 overflow-x-auto">
                 <button onclick="switchView('distribution')" id="tab-btn-distribution" class="px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold bg-emerald-600 text-white flex items-center gap-2 shadow-xs transition">
                     <i class="fa-solid fa-calendar-days"></i>
