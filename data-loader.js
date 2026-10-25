@@ -39,7 +39,47 @@
     return { stage, label, sec, track };
   }
 
-  async function fetchRows(url, label) {
+  // مفاتيح سريعة: مقارن عربي واحد بدل localeCompare (أبطأ بعشرات المرات)
+  const COLL = new Intl.Collator('ar');
+  const IS_MOB = () => window.matchMedia('(max-width: 767px)').matches;
+
+  // محلل CSV خفيف (بديل عن SheetJS الثقيل على الجوال)
+  function parseCSV(t) {
+    if (t.charCodeAt(0) === 0xFEFF) t = t.slice(1);
+    const rows = []; let row = [], f = '', q = false, i = 0; const L = t.length;
+    while (i < L) {
+      const c = t[i];
+      if (q) {
+        if (c === '"') { if (t[i + 1] === '"') { f += '"'; i += 2; continue; } q = false; i++; continue; }
+        f += c; i++; continue;
+      }
+      if (c === '"') { q = true; i++; }
+      else if (c === ',') { row.push(f); f = ''; i++; }
+      else if (c === '\n' || c === '\r') { if (c === '\r' && t[i + 1] === '\n') i++; row.push(f); f = ''; rows.push(row); row = []; i++; }
+      else { f += c; i++; }
+    }
+    if (f !== '' || row.length) { row.push(f); rows.push(row); }
+    return rows;
+  }
+  function csvToObjects(text, label) {
+    const all = parseCSV(text).filter(r => r.some(x => x !== ''));
+    if (all.length < 2) throw new Error(label + ' — الورقة فارغة');
+    const seen = {};
+    const head = all[0].map(h => {
+      let k = String(h).replace(/[\u200B-\u200D\uFEFF]/g, '').trim() || 'عمود';
+      if (seen[k]) k = k + '_' + (seen[k]++); else seen[k] = 1;
+      return k;
+    });
+    const out = new Array(all.length - 1);
+    for (let r = 1; r < all.length; r++) {
+      const o = {}, row = all[r];
+      for (let c = 0; c < head.length; c++) o[head[c]] = row[c] === undefined ? '' : row[c].trim();
+      out[r - 1] = o;
+    }
+    return out;
+  }
+
+  async function fetchText(url, label) {
     let text;
     try {
       const res = await fetch(url, { cache: 'no-store' });
@@ -47,18 +87,22 @@
       text = await res.text();
     } catch (e) { throw new Error(label + ' — فشل الاتصال بالرابط (' + e.message + ')'); }
     if (/^\s*<(!doctype|html)/i.test(text)) throw new Error(label + ' — الرابط يعيد صفحة ويب لا CSV (غير منشور أو ليس رابط النشر على الويب)');
-    if (typeof XLSX === 'undefined') throw new Error('مكتبة XLSX لم تُحمَّل (تحقق من الإنترنت)');
-    const wb = XLSX.read(text, { type: 'string', raw: true });
-    const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], { defval: '' }).map(sanitizeObjectKeys);
-    if (!rows.length) throw new Error(label + ' — الورقة فارغة');
-    return rows;
+    return text;
   }
 
-  window.loadFromSheets = async function () {
-    const res = await Promise.allSettled([fetchRows(CFG.SUPERVISORS_CSV, 'ورقة الموجهين'), fetchRows(CFG.SCHEDULE_CSV, 'ورقة الجدول')]);
+  // ---- كاش محلي: يعرض آخر بيانات فوراً ثم يحدّثها في الخلفية ----
+  const CK = 'sup_app_data_v1';
+  const readCache = () => { try { const j = JSON.parse(localStorage.getItem(CK) || 'null'); return j && j.sup && j.sch && j.u === CFG.SUPERVISORS_CSV + '|' + CFG.SCHEDULE_CSV ? j : null; } catch (e) { return null; } };
+  const saveCache = d => { try { localStorage.setItem(CK, JSON.stringify({ sup: d.sup, sch: d.sch, u: CFG.SUPERVISORS_CSV + '|' + CFG.SCHEDULE_CSV })); } catch (e) { /* الكاش اختياري */ } };
+  async function fetchBoth() {
+    const res = await Promise.allSettled([fetchText(CFG.SUPERVISORS_CSV, 'ورقة الموجهين'), fetchText(CFG.SCHEDULE_CSV, 'ورقة الجدول')]);
     const errs = res.filter(r => r.status === 'rejected').map(r => r.reason.message);
     if (errs.length) throw new Error(errs.join(' | '));
-    const [supRows, schRows] = res.map(r => r.value);
+    return { sup: res[0].value, sch: res[1].value };
+  }
+
+  function buildData(d) {
+    const supRows = csvToObjects(d.sup, 'ورقة الموجهين'), schRows = csvToObjects(d.sch, 'ورقة الجدول');
     supervisors = supRows.filter(r => r['اسم الموجه']).map((r, i) => ({
       id: 'sup-' + i, name: String(r['اسم الموجه']).trim(),
       gender: /أنث|انث/.test(String(r['الجنس'])) ? 'أنثى' : 'ذكر',
@@ -66,7 +110,7 @@
     }));
     if (!schRows[0] || !('المدرسة' in schRows[0])) throw new Error('ورقة الجدول: لا يوجد عمود «المدرسة» (الأعمدة الموجودة: ' + Object.keys(schRows[0] || {}).join('، ') + ')');
     if (!supRows[0] || !('اسم الموجه' in supRows[0])) throw new Error('ورقة الموجهين: لا يوجد عمود «اسم الموجه» (الأعمدة الموجودة: ' + Object.keys(supRows[0] || {}).join('، ') + ')');
-    const names = [...new Set(schRows.map(r => String(r['المدرسة'] || '').trim()).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'ar'));
+    const names = [...new Set(schRows.map(r => String(r['المدرسة'] || '').trim()).filter(Boolean))].sort(COLL.compare);
     const idOf = {}; schools = []; schedules = []; schedules = {}; FLAT = [];
     names.forEach((nm, i) => {
       const ov = (CFG.SCHOOL_GENDER_OVERRIDES || {})[nm];
@@ -80,13 +124,17 @@
       const { stage, label, sec, track } = normGrade(r['الصف'], r['الشعبة']);
       const row = { grade: label, stage, sec, track, day: normDay(r['اليوم']), period: normPeriod(r['الحصة']),
         subject: String(r['المادة'] || '').trim(), teacher: String(r['اسم المدرس'] || '').trim() };
-      schedules[idOf[nm]].push(row); FLAT.push({ school: nm, ...row });
+      schedules[idOf[nm]].push(row);
+      FLAT.push({ school: nm, ...row, _k: n(nm + ' ' + row.day + ' ' + label + ' ' + row.subject + ' ' + row.teacher), _s: n(row.subject), _t: n(row.teacher) });
     });
     schools.forEach(s => { s.sections = new Set(schedules[s.id].map(x => x.grade)).size; });
     distributionResults = distributionResults.filter(d => idOf[d.schoolName] === d.schoolId);
     window.SHEETS_MODE = true;
+    // الترتيب مرة واحدة هنا بدل كل عملية فلترة
+    FLAT.sort((a, b) => COLL.compare(a.school, b.school) || DAYS.indexOf(a.day) - DAYS.indexOf(b.day) || a.period - b.period);
     buildFilterOptions(); applyFilters();
-  };
+  }
+  window.loadFromSheets = async function () { const d = await fetchBoth(); buildData(d); saveCache(d); };
 
   // ---------- تبويب الفلترة ----------
   const inp = 'w-full text-xs border border-slate-300 rounded-xl px-3 py-2 bg-slate-50';
@@ -141,7 +189,7 @@
   }
   const opts = (first, arr) => `<option value="">${first}</option>` + arr.map(v => `<option>${esc(v)}</option>`).join('');
   function buildFilterOptions() {
-    const uniq = k => [...new Set(FLAT.map(r => r[k]).filter(Boolean))].sort((a, b) => String(a).localeCompare(String(b), 'ar'));
+    const uniq = k => [...new Set(FLAT.map(r => r[k]).filter(Boolean))].sort((a, b) => COLL.compare(String(a), String(b)));
     document.getElementById('f-school').innerHTML = opts('كل المدارس', uniq('school'));
     document.getElementById('f-day').innerHTML = opts('كل الأيام', DAYS);
     document.getElementById('f-period').innerHTML = opts('كل الحصص', [1, 2, 3, 4, 5, 6, 7]);
@@ -151,28 +199,27 @@
   }
   function refreshLists() {
     const sc = document.getElementById('f-school').value, rows = sc ? FLAT.filter(r => r.school === sc) : FLAT;
-    const uniq = k => [...new Set(rows.map(r => r[k]).filter(Boolean))].sort((a, b) => String(a).localeCompare(String(b), 'ar'));
+    const uniq = k => [...new Set(rows.map(r => r[k]).filter(Boolean))].sort((a, b) => COLL.compare(String(a), String(b)));
     document.getElementById('dl-subject').innerHTML = uniq('subject').map(v => `<option value="${esc(v)}">`).join('');
     document.getElementById('dl-teacher').innerHTML = uniq('teacher').map(v => `<option value="${esc(v)}">`).join('');
   }
   window.applyFilters = function () {
-    LIMIT = 300;
+    LIMIT = IS_MOB() ? 40 : 300;
     const v = id => document.getElementById(id).value.trim();
     const sc = v('f-school'), dy = v('f-day'), pr = v('f-period'), st = v('f-stage'), se = v('f-section'), tx = n(v('f-text')), sb = n(v('f-subject')), tc = n(v('f-teacher'));
     const no = document.getElementById('f-noteacher').checked;
     FILTERED = FLAT.filter(r => (!sc || r.school === sc) && (!dy || r.day === dy) && (!pr || r.period == pr) && (!st || r.stage === st) && (!se || (/^\d$/.test(se) ? r.sec == se : r.track === se)) &&
-      (!tx || n([r.school, r.day, r.grade, r.subject, r.teacher].join(' ')).includes(tx)) &&
-      (!sb || n(r.subject).includes(sb)) && (!tc || n(r.teacher).includes(tc)) && (!no || !r.teacher));
-    FILTERED.sort((a, b) => a.school.localeCompare(b.school, 'ar') || DAYS.indexOf(a.day) - DAYS.indexOf(b.day) || a.period - b.period);
+      (!tx || r._k.includes(tx)) &&
+      (!sb || r._s.includes(sb)) && (!tc || r._t.includes(tc)) && (!no || !r.teacher));
     renderFilter();
   };
   function renderFilter() {
-    const shown = FILTERED.slice(0, LIMIT);
-    document.getElementById('filter-body').innerHTML = shown.map(r =>
+    const shown = FILTERED.slice(0, LIMIT), mob = IS_MOB();
+    document.getElementById('filter-body').innerHTML = mob ? '' : shown.map(r =>
       `<tr class="hover:bg-slate-50"><td class="p-3 font-semibold">${esc(r.school)}</td><td class="p-3">${esc(r.day)}</td><td class="p-3">${r.period || '—'}</td><td class="p-3">${esc(r.grade)}</td><td class="p-3">${esc(r.subject)}</td><td class="p-3">${esc(r.teacher) || '<span class="text-rose-400">—</span>'}</td></tr>`).join('')
       || '<tr><td colspan="6" class="p-6 text-center text-slate-400">لا توجد نتائج مطابقة</td></tr>';
     const oneSchool = document.getElementById('f-school').value;
-    document.getElementById('filter-cards').innerHTML = shown.map(r => `
+    document.getElementById('filter-cards').innerHTML = !mob ? '' : shown.map(r => `
       <div class="bg-white rounded-2xl border border-slate-200 p-3 shadow-xs active:scale-[.99] transition">
         <div class="flex items-center justify-between gap-2 mb-1.5">
           <div class="flex items-center gap-1.5">
@@ -189,7 +236,7 @@
     document.getElementById('filter-summary').textContent = `${FILTERED.length.toLocaleString('ar')} حصة — ${sc} مدرسة — ${tc} مدرس (من أصل ${FLAT.length.toLocaleString('ar')})`;
     document.getElementById('filter-more').classList.toggle('hidden', FILTERED.length <= LIMIT);
   }
-  window.LIMIT_MORE = () => { LIMIT += 500; renderFilter(); };
+  window.LIMIT_MORE = () => { LIMIT += IS_MOB() ? 60 : 500; renderFilter(); };
   window.resetFilters = function () {
     ['f-school', 'f-day', 'f-period', 'f-stage', 'f-section', 'f-subject', 'f-teacher', 'f-text'].forEach(id => document.getElementById(id).value = '');
     refreshLists();
@@ -517,7 +564,21 @@
   window.addEventListener('DOMContentLoaded', async () => {
     injectTab(); injectTeamTab(); injectBottomNav(); buildMobileHome(); injectMobileTables();
     if (!CFG.SCHEDULE_CSV || !CFG.SUPERVISORS_CSV) return;
-    try { await loadFromSheets(); renderAllViews(); showToast('تم تحميل البيانات من Google Sheets'); }
-    catch (e) { console.error(e); showToast('تعذر تحميل البيانات: ' + e.message, 'error'); }
+    window.matchMedia('(max-width: 767px)').addEventListener('change', () => { try { renderFilter(); } catch (e) { } });
+    // 1) عرض آخر بيانات محفوظة فوراً  2) جلب الجديد في الخلفية وتحديث الشاشة إن تغيّر
+    const cached = readCache(); let shownCache = false;
+    if (cached) {
+      try { buildData(cached); renderAllViews(); shownCache = true; } catch (e) { console.error(e); }
+    }
+    try {
+      const fresh = await fetchBoth();
+      if (!shownCache || fresh.sup !== cached.sup || fresh.sch !== cached.sch) {
+        buildData(fresh); renderAllViews(); saveCache(fresh);
+        showToast(shownCache ? 'تم تحديث البيانات' : 'تم تحميل البيانات من Google Sheets');
+      }
+    } catch (e) {
+      console.error(e);
+      showToast(shownCache ? 'تعذّر التحديث، تُعرض آخر بيانات محفوظة' : 'تعذر تحميل البيانات: ' + e.message, 'error');
+    }
   });
 })();
