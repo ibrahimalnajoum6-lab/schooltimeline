@@ -275,6 +275,12 @@
           ${field('عرض الموجهين', `<label class="flex items-center gap-2 text-xs pt-2"><input type="checkbox" id="t-all"> كل الموجهين (وليس نفس جنس المدرسة فقط)</label>`)}
         </div>
       </div>
+      <div class="bg-white p-3 rounded-2xl border border-slate-200 flex items-center gap-2">
+        <i class="fa-solid fa-magnifying-glass text-slate-400"></i>
+        <input id="t-q" type="search" autocomplete="off" placeholder="ابحث عن موجه بالاسم أو الاختصاص…" class="flex-1 min-w-0 text-sm bg-transparent focus:outline-none">
+        <label class="flex items-center gap-1 text-[11px] font-bold text-slate-600 whitespace-nowrap"><input type="checkbox" id="t-sel"> المختارون فقط</label>
+        <span id="t-qc" class="text-[11px] text-slate-400 whitespace-nowrap"></span>
+      </div>
       <div id="t-avail" class="bg-white p-3 rounded-2xl border border-slate-200 text-xs"></div>
       <div id="t-alert"></div>
       <div id="t-cards" class="md:hidden space-y-2"></div>
@@ -292,6 +298,8 @@
     document.getElementById('t-date').addEventListener('change', () => { const d = dayOf(document.getElementById('t-date').value); if (DAYS.slice(0, 5).includes(d)) document.getElementById('t-day').value = d; renderTeam(); });
     document.getElementById('t-day').addEventListener('change', renderTeam);
     document.getElementById('t-all').addEventListener('change', renderTeam);
+    document.getElementById('t-q').addEventListener('input', renderTeam);
+    document.getElementById('t-sel').addEventListener('change', renderTeam);
     ['t-body', 't-cards'].forEach(id => document.getElementById(id).addEventListener('change', e => {
       if (e.target.dataset.sup) { e.target.checked ? TEAM.add(e.target.dataset.sup) : TEAM.delete(e.target.dataset.sup); renderTeam(); }
     }));
@@ -324,7 +332,10 @@
   function renderTeam() {
     const sc = curSchool(); if (!sc) return;
     const all = document.getElementById('t-all').checked;
-    const list = supervisors.filter(s => all || (sc.gender === 'ذكور') === (s.gender === 'ذكر'));
+    const q = n(document.getElementById('t-q').value), onlySel = document.getElementById('t-sel').checked;
+    const base = supervisors.filter(s => all || (sc.gender === 'ذكور') === (s.gender === 'ذكر'));
+    const list = base.filter(s => (!q || n(s.name + ' ' + s.specialty).includes(q)) && (!onlySel || TEAM.has(s.id)));
+    document.getElementById('t-qc').textContent = (q || onlySel) ? `${list.length} من ${base.length}` : '';
     const warns = [];
     document.getElementById('t-body').innerHTML = list.map(s => {
       const st = supStats(s, sc), on = TEAM.has(s.id);
