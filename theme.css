@@ -69,3 +69,14 @@ main, main > *, header > div { min-width: 0; max-width: 100%; }
   #schedule-display-container table { min-width: 560px; }
   header .flex.items-center.gap-2 { flex-wrap: wrap; justify-content: flex-end; }
 }
+
+/* ===== منع لوحة بحث Google / تحديد النص عند الضغط على أزرار التنقل ===== */
+#bottom-nav, #bottom-nav *, #more-sheet button, #more-sheet button *, .m-gold-btn, .m-pill, header button, header button * {
+  -webkit-user-select: none; user-select: none;
+  -webkit-touch-callout: none;
+  -webkit-tap-highlight-color: transparent;
+}
+#bottom-nav [data-nav], #more-sheet [data-nav], .m-gold-btn, .m-pill { touch-action: manipulation; }
+#bottom-nav [data-nav] > *, #more-sheet button > * { pointer-events: none; }
+/* الحقول تبقى قابلة للتحديد والكتابة */
+input, textarea, select { -webkit-user-select: text; user-select: text; }
