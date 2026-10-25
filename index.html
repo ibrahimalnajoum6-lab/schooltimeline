@@ -7,7 +7,7 @@
     <!-- Tailwind CSS CDN -->
     <script src="https://cdn.tailwindcss.com"></script>
     <!-- SheetJS (xlsx) for importing/exporting Excel files -->
-    <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <script defer src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
     <!-- Google Fonts Cairo -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com">
@@ -82,7 +82,7 @@
             body { background: white !important; }
         }
     </style>
-    <link rel="stylesheet" href="theme.css?v=5">
+    <link rel="stylesheet" href="theme.css?v=6">
 </head>
 <body class="text-slate-800 antialiased min-h-screen flex flex-col custom-scrollbar">
 
@@ -613,7 +613,7 @@
         <span id="toast-msg">تمت العملية بنجاح</span>
     </div>
 
-    <script src="config.js?v=5"></script>
+    <script src="config.js?v=6"></script>
     <script>
         const SHARIA_SPECIALTIES = [
             "القرآن الكريم وعلومه",
@@ -1749,13 +1749,13 @@
             }, 4000);
         }
     </script>
-    <script src="data-loader.js?v=5"></script>
+    <script src="data-loader.js?v=6"></script>
     <script>
         // تحديث فوري: التسجيل + فحص النسخة الجديدة + إعادة التحميل تلقائياً
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
                 const hadController = !!navigator.serviceWorker.controller;
-                navigator.serviceWorker.register('sw.js?v=5', { updateViaCache: 'none' }).then(reg => {
+                navigator.serviceWorker.register('sw.js?v=6', { updateViaCache: 'none' }).then(reg => {
                     reg.update();
                     document.addEventListener('visibilitychange', () => { if (!document.hidden) reg.update(); });
                 }).catch(console.error);
