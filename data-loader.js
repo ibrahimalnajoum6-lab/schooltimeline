@@ -374,22 +374,34 @@
       </div>
     </div>`);
     const sheet = document.getElementById('more-sheet');
+    // ملاحظة أداء: Tailwind CDN يعيد بناء الأنماط عند كل تغيير في class،
+    // لذلك على الجوال نغيّر style/attribute فقط (لا يراقبها) بدل classList.
+    const hide = el => el && el.style.setProperty('display', 'none', 'important');
+    const show = (el, d) => el && (d ? el.style.setProperty('display', d, 'important') : el.style.removeProperty('display'));
+    const mob = () => window.matchMedia('(max-width: 767px)').matches;
+    const VIEWS = ['distribution', 'supervisors', 'schools', 'schedules', 'team', 'filter', 'import'];
+    const sheetOpen = on => on ? show(sheet, 'block') : hide(sheet);
+    hide(sheet);
     document.body.addEventListener('click', e => {
       const b = e.target.closest('[data-nav]'); if (!b) return;
       const v = b.dataset.nav;
-      if (v === 'more') sheet.classList.remove('hidden');
-      else if (v === 'close') sheet.classList.add('hidden');
-      else if (v === 'hero') { document.getElementById('app-hero').classList.toggle('mobile-show'); sheet.classList.add('hidden'); window.scrollTo({ top: 0, behavior: 'smooth' }); }
-      else { sheet.classList.add('hidden'); v === 'team' ? openTeamBuilder() : switchView(v); }
+      if (v === 'more') sheetOpen(true);
+      else if (v === 'close') sheetOpen(false);
+      else if (v === 'hero') { document.getElementById('app-hero').classList.toggle('mobile-show'); sheetOpen(false); window.scrollTo({ top: 0, behavior: 'smooth' }); }
+      else { sheetOpen(false); v === 'team' ? openTeamBuilder() : switchView(v); }
     });
     const _sv = window.switchView;
     window.switchView = function (v) {
-      _sv(v); window.scrollTo(0, 0);
-      document.getElementById('m-home')?.classList.toggle('hidden', v !== 'distribution');
-      document.getElementById('app-stats')?.classList.toggle('max-md:hidden', v !== 'distribution');
+      if (mob()) {
+        VIEWS.forEach(x => { const el = document.getElementById('view-' + x); if (el) x === v ? show(el, 'block') : hide(el); });
+      } else { _sv(v); }
+      window.scrollTo(0, 0);
+      const home = document.getElementById('m-home'), stats = document.getElementById('app-stats');
+      v === 'distribution' ? show(home) : hide(home);
+      if (mob()) { v === 'distribution' ? show(stats) : hide(stats); }
       document.querySelectorAll('#bottom-nav [data-nav]').forEach(b => {
         const on = b.dataset.nav === v || (b.dataset.nav === 'more' && ['supervisors', 'schools', 'import'].includes(v));
-        b.classList.toggle('active', on);
+        on ? b.setAttribute('data-active', '1') : b.removeAttribute('data-active');
       });
     };
     switchView('distribution');
@@ -411,10 +423,15 @@
       }, 400);
     });
     const hero = document.getElementById('m-hero');
+    let raf = 0;
     hero.addEventListener('scroll', () => {
-      const i = Math.round(Math.abs(hero.scrollLeft) / hero.clientWidth);
-      document.querySelectorAll('#m-dots span').forEach((d, k) => d.classList.toggle('on', k === i));
-    });
+      if (raf) return;
+      raf = requestAnimationFrame(() => {
+        raf = 0;
+        const i = Math.round(Math.abs(hero.scrollLeft) / hero.clientWidth);
+        document.querySelectorAll('#m-dots span').forEach((d, k) => k === i ? d.setAttribute('data-on', '1') : d.removeAttribute('data-on'));
+      });
+    }, { passive: true });
     refreshHome();
   }
   function refreshHome() {
@@ -427,7 +444,7 @@
       slide('خطة الزيارات', `المجدولة: ${sched} من ${schools.length} مدرسة`, warn ? `فرق عليها تنبيهات: ${warn}` : 'لا تنبيهات على الفرق', 'عرض جدول الزيارات', "switchView('distribution')") +
       slide('فريق الزيارة', 'حدّد فريقك بنفسك', 'حسب حصص المدرسة واليوم المتاحين', 'تكوين فريق', 'openTeamBuilder()') +
       slide('برنامج الدوام', `${periods.toLocaleString('ar')} حصة`, `${schools.length} مدرسة · ${supervisors.length} موجه`, 'فلترة الدوام', "switchView('filter')");
-    document.getElementById('m-dots').innerHTML = '<span class="on"></span><span></span><span></span>';
+    document.getElementById('m-dots').innerHTML = '<span data-on="1"></span><span></span><span></span>';
   }
   const _ra = window.renderAllViews;
   window.renderAllViews = function () { _ra(); refreshHome(); };
