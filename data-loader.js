@@ -479,8 +479,16 @@
       return `<div class="bg-white rounded-2xl border border-slate-200 p-3.5 shadow-xs"><div class="text-sm font-bold text-emerald-800 mb-1"><i class="fa-solid fa-graduation-cap ml-1"></i>${esc(g)}</div>${rows}</div>`;
     }).join('') || '<div class="p-8 text-center text-slate-400 text-xs">لا يوجد جدول لهذه المدرسة</div>';
   }
+  const IS_MOBILE = () => window.matchMedia('(max-width: 767px)').matches;
   const _rs = window.renderSchoolScheduleView;
-  window.renderSchoolScheduleView = function () { _rs(); renderScheduleMobile(); };
+  // على الجوال لا نبني جدول سطح المكتب المخفي (يُبطئ الصفحة)
+  window.renderSchoolScheduleView = function () { if (!IS_MOBILE()) _rs(); renderScheduleMobile(); };
+  // تقرير الطباعة لا يُبنى على الجوال إلا عند الطباعة فعلاً
+  const _pp = window.prepareOfficialPrintReport;
+  if (typeof _pp === 'function') {
+    window.prepareOfficialPrintReport = function () { if (!IS_MOBILE()) _pp(); };
+    window.addEventListener('beforeprint', () => { try { _pp(); } catch (e) { console.error(e); } });
+  }
   function injectMobileTables() {
     const c = document.getElementById('schedule-display-container');
     c.classList.add('hidden', 'md:block');
