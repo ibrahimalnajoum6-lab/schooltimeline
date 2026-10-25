@@ -39,13 +39,13 @@ main input, main select { background: #fffdf7 !important; border-color: #e0d4b3 
   .m-slide h3 { font-size: 26px; line-height: 1.35; font-weight: 800; margin: 6px 0; }
   .m-slide p { color: #cfe3d8; font-size: 13px; }
   .m-dots span { width: 10px; height: 10px; border-radius: 999px; background: #cdd9d2; display: inline-block; transition: all .2s; }
-  .m-dots span.on { width: 34px; background: var(--g2); }
+  .m-dots span.on, .m-dots span[data-on] { width: 34px; background: var(--g2); }
 
   /* شريط التنقل العائم */
   #bottom-nav { left: 12px !important; right: 12px !important; bottom: calc(12px + env(safe-area-inset-bottom)) !important; border-radius: 30px; border: 1px solid rgba(226,196,126,.35) !important;
     background: linear-gradient(180deg, var(--g1), var(--g2)) !important; box-shadow: 0 12px 28px rgba(11,59,46,.4); padding-bottom: 0 !important; align-items: center; height: 68px; }
   #bottom-nav [data-nav] { color: #cfe3d8; }
-  #bottom-nav [data-nav].active { color: var(--gold); }
+  #bottom-nav [data-nav].active, #bottom-nav [data-nav][data-active] { color: var(--gold); }
   #bottom-nav [data-nav="team"] { width: 62px; height: 62px; margin: -30px auto 0; border-radius: 999px; padding: 0;
     background: linear-gradient(180deg, #f0d99a, var(--gold2)); color: var(--g2) !important; border: 4px solid var(--cream); box-shadow: 0 8px 18px rgba(0,0,0,.25); }
 }
