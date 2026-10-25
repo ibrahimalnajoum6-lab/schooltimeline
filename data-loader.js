@@ -432,9 +432,65 @@
   const _ra = window.renderAllViews;
   window.renderAllViews = function () { _ra(); refreshHome(); };
 
+  // ---------- بطاقات بدل الجداول على الجوال (بدون تمرير أفقي) ----------
+  function mobileCards(tbodyId) {
+    const tb = document.getElementById(tbodyId); if (!tb) return;
+    const table = tb.closest('table'), wrap = table.parentElement.classList.contains('overflow-x-auto') ? table.parentElement.parentElement : table.parentElement;
+    let box = document.getElementById(tbodyId + '-m');
+    if (!box) { wrap.insertAdjacentHTML('beforebegin', `<div id="${tbodyId}-m" class="md:hidden space-y-2"></div>`); box = document.getElementById(tbodyId + '-m'); wrap.classList.add('hidden', 'md:block'); }
+    const heads = [...table.querySelectorAll('thead th')].map(t => t.textContent.trim());
+    box.innerHTML = [...tb.rows].map(tr => {
+      const cells = [...tr.cells];
+      if (cells.length === 1) return `<div class="bg-white rounded-2xl border border-slate-200 p-6 text-center text-xs text-slate-400">${cells[0].innerHTML}</div>`;
+      let title = '', acts = '', rows = '';
+      cells.forEach((td, i) => {
+        if (heads[i] === '#') return;
+        if (td.querySelector('button')) { acts += td.innerHTML; return; }
+        if (!title) { title = td.innerHTML; return; }
+        if (!td.textContent.trim()) return;
+        rows += `<div class="flex items-start justify-between gap-3 text-xs py-1.5 border-t border-slate-100"><span class="text-slate-500 shrink-0">${esc(heads[i])}</span><span class="text-slate-800 font-semibold text-left">${td.innerHTML}</span></div>`;
+      });
+      return `<div class="bg-white rounded-2xl border border-slate-200 p-3.5 shadow-xs"><div class="text-sm font-bold text-slate-900 mb-1">${title}</div>${rows}${acts ? `<div class="flex flex-wrap gap-2 justify-end mt-2 pt-2 border-t border-slate-100 text-base">${acts}</div>` : ''}</div>`;
+    }).join('');
+  }
+  [['renderSupervisorsTable', 'supervisors-table-body'], ['renderSchoolsTable', 'schools-table-body']].forEach(([fn, id]) => {
+    const o = window[fn]; window[fn] = function () { o.apply(this, arguments); mobileCards(id); };
+  });
+
+  let SM_DAY = 'الأحد';
+  function renderScheduleMobile() {
+    const box = document.getElementById('schedule-mobile'); if (!box) return;
+    const id = document.getElementById('schedule-school-selector').value, list = schedules[id] || [];
+    if (!document.getElementById('sm-body')) {
+      box.innerHTML = `<div class="flex gap-1.5 overflow-x-auto pb-1" id="sm-days"></div><select id="sm-grade" class="w-full text-sm px-3 py-2"></select><div id="sm-body" class="space-y-3"></div>`;
+      document.getElementById('sm-days').addEventListener('click', e => { const b = e.target.closest('[data-day]'); if (b) { SM_DAY = b.dataset.day; renderScheduleMobile(); } });
+      document.getElementById('sm-grade').addEventListener('change', renderScheduleMobile);
+    }
+    document.getElementById('sm-days').innerHTML = DAYS.slice(0, 5).map(d => `<button data-day="${d}" class="shrink-0 px-4 py-2 rounded-xl text-xs font-bold ${d === SM_DAY ? 'bg-emerald-600 text-white' : 'bg-white border border-slate-200 text-slate-600'}">${d}</button>`).join('');
+    const sel = document.getElementById('sm-grade'), keep = sel.value, grades = [...new Set(list.map(x => x.grade))];
+    sel.innerHTML = '<option value="">كل الصفوف</option>' + grades.map(g => `<option>${esc(g)}</option>`).join('');
+    if (grades.includes(keep)) sel.value = keep;
+    const gs = sel.value ? [sel.value] : grades;
+    document.getElementById('sm-body').innerHTML = gs.map(g => {
+      const rows = [1, 2, 3, 4, 5, 6, 7].map(p => {
+        const it = list.find(x => x.grade === g && normalizeDayName(x.day) === normalizeDayName(SM_DAY) && parseInt(x.period) === p);
+        return `<div class="flex items-center gap-3 py-2 ${p > 1 ? 'border-t border-slate-100' : ''}"><span class="w-8 h-8 shrink-0 rounded-xl bg-emerald-600 text-white text-xs font-bold flex items-center justify-center">${p}</span>${it ? `<div class="min-w-0"><div class="text-sm font-bold text-slate-900">${esc(it.subject)}</div>${it.teacher ? `<div class="text-[11px] text-slate-500">${esc(it.teacher)}</div>` : ''}</div>` : '<span class="text-xs text-slate-300">—</span>'}</div>`;
+      }).join('');
+      return `<div class="bg-white rounded-2xl border border-slate-200 p-3.5 shadow-xs"><div class="text-sm font-bold text-emerald-800 mb-1"><i class="fa-solid fa-graduation-cap ml-1"></i>${esc(g)}</div>${rows}</div>`;
+    }).join('') || '<div class="p-8 text-center text-slate-400 text-xs">لا يوجد جدول لهذه المدرسة</div>';
+  }
+  const _rs = window.renderSchoolScheduleView;
+  window.renderSchoolScheduleView = function () { _rs(); renderScheduleMobile(); };
+  function injectMobileTables() {
+    const c = document.getElementById('schedule-display-container');
+    c.classList.add('hidden', 'md:block');
+    c.insertAdjacentHTML('afterend', '<div id="schedule-mobile" class="md:hidden space-y-3"></div>');
+    renderScheduleMobile(); mobileCards('supervisors-table-body'); mobileCards('schools-table-body');
+  }
+
   // ---------- الإقلاع ----------
   window.addEventListener('DOMContentLoaded', async () => {
-    injectTab(); injectTeamTab(); injectBottomNav(); buildMobileHome();
+    injectTab(); injectTeamTab(); injectBottomNav(); buildMobileHome(); injectMobileTables();
     if (!CFG.SCHEDULE_CSV || !CFG.SUPERVISORS_CSV) return;
     try { await loadFromSheets(); renderAllViews(); showToast('تم تحميل البيانات من Google Sheets'); }
     catch (e) { console.error(e); showToast('تعذر تحميل البيانات: ' + e.message, 'error'); }
