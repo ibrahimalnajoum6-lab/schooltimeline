@@ -235,7 +235,7 @@
         <table class="w-full text-xs text-right"><thead class="bg-slate-50 text-slate-600"><tr><th class="p-3 w-10"></th><th class="p-3">الموجه</th><th class="p-3">الاختصاص</th><th class="p-3">حصصه في المدرسة (أسبوعياً)</th><th class="p-3">حصصه يوم الزيارة</th><th class="p-3">الحالة</th></tr></thead>
         <tbody id="t-body" class="divide-y divide-slate-100"></tbody></table>
       </div>
-      <div class="sticky bottom-20 md:bottom-2 z-30 shadow-lg flex flex-wrap items-center justify-between gap-2 bg-emerald-50 border border-emerald-300 rounded-2xl px-4 py-3">
+      <div class="sticky bottom-28 md:bottom-2 z-30 shadow-lg flex flex-wrap items-center justify-between gap-2 bg-emerald-50 border border-emerald-300 rounded-2xl px-4 py-3">
         <span class="text-xs font-bold text-emerald-900">عدد أعضاء الفريق: <span id="t-count">0</span></span>
         <div class="flex gap-2"><button onclick="clearTeam()" class="text-xs bg-white border border-slate-300 px-3 py-2.5 rounded-xl font-bold">إلغاء الفريق</button>
         <button onclick="saveTeam()" class="text-sm bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2.5 rounded-xl font-bold">حفظ الفريق</button></div>
@@ -359,9 +359,10 @@
   function injectBottomNav() {
     const items = [['distribution', 'fa-calendar-days', 'الزيارات'], ['team', 'fa-people-group', 'الفريق'], ['filter', 'fa-filter', 'الفلترة'], ['schedules', 'fa-table-cells', 'الحصص']];
     document.body.insertAdjacentHTML('beforeend', `
-    <nav id="bottom-nav" class="md:hidden fixed bottom-0 inset-x-0 z-40 bg-white/95 backdrop-blur border-t border-slate-200 grid grid-cols-5 no-print" style="padding-bottom:env(safe-area-inset-bottom)">
-      ${items.map(([v, ic, l]) => `<button data-nav="${v}" class="flex flex-col items-center justify-center gap-0.5 py-2 text-slate-500"><i class="fa-solid ${ic} text-lg"></i><span class="text-[11px] font-bold">${l}</span></button>`).join('')}
-      <button data-nav="more" class="flex flex-col items-center justify-center gap-0.5 py-2 text-slate-500"><i class="fa-solid fa-ellipsis text-lg"></i><span class="text-[11px] font-bold">المزيد</span></button>
+    <nav id="bottom-nav" class="md:hidden fixed bottom-0 inset-x-0 z-40 grid grid-cols-5 no-print">
+      ${[['distribution', 'fa-calendar-days', 'الزيارات'], ['filter', 'fa-filter', 'الفلترة']].map(([v, ic, l]) => `<button data-nav="${v}" class="flex flex-col items-center justify-center gap-0.5"><i class="fa-solid ${ic} text-lg"></i><span class="text-[11px] font-bold">${l}</span></button>`).join('')}
+      <button data-nav="team" aria-label="تكوين فريق"><i class="fa-solid fa-plus text-2xl"></i></button>
+      ${[['schedules', 'fa-table-cells', 'الحصص'], ['more', 'fa-ellipsis', 'المزيد']].map(([v, ic, l]) => `<button data-nav="${v}" class="flex flex-col items-center justify-center gap-0.5"><i class="fa-solid ${ic} text-lg"></i><span class="text-[11px] font-bold">${l}</span></button>`).join('')}
     </nav>
     <div id="more-sheet" class="md:hidden fixed inset-0 z-50 hidden">
       <div class="absolute inset-0 bg-slate-900/50" data-nav="close"></div>
@@ -384,17 +385,56 @@
     const _sv = window.switchView;
     window.switchView = function (v) {
       _sv(v); window.scrollTo(0, 0);
+      document.getElementById('m-home')?.classList.toggle('hidden', v !== 'distribution');
+      document.getElementById('app-stats')?.classList.toggle('max-md:hidden', v !== 'distribution');
       document.querySelectorAll('#bottom-nav [data-nav]').forEach(b => {
         const on = b.dataset.nav === v || (b.dataset.nav === 'more' && ['supervisors', 'schools', 'import'].includes(v));
-        b.classList.toggle('text-emerald-700', on); b.classList.toggle('text-slate-500', !on);
+        b.classList.toggle('active', on);
       });
     };
     switchView('distribution');
   }
 
+  // ---------- الصفحة الرئيسية للجوال ----------
+  function buildMobileHome() {
+    document.querySelector('main').insertAdjacentHTML('afterbegin', `
+    <div id="m-home" class="md:hidden space-y-4 no-print">
+      <input id="m-search" placeholder="🔍 ابحث عن مدرسة أو مدرّس أو مادة..." class="w-full px-4 py-3 text-sm shadow-sm">
+      <div id="m-hero"></div>
+      <div id="m-dots" class="m-dots flex justify-center gap-1.5"></div>
+      <div class="flex items-center justify-between pt-1"><h2 class="m-title">الإنجازات والمؤشرات</h2><button class="m-pill" onclick="switchView('filter')">فلترة الدوام</button></div>
+    </div>`);
+    let t; document.getElementById('m-search').addEventListener('input', e => {
+      clearTimeout(t); t = setTimeout(() => {
+        const v = e.target.value.trim(); if (!v) return;
+        switchView('filter'); document.getElementById('f-text').value = v; applyFilters();
+      }, 400);
+    });
+    const hero = document.getElementById('m-hero');
+    hero.addEventListener('scroll', () => {
+      const i = Math.round(Math.abs(hero.scrollLeft) / hero.clientWidth);
+      document.querySelectorAll('#m-dots span').forEach((d, k) => d.classList.toggle('on', k === i));
+    });
+    refreshHome();
+  }
+  function refreshHome() {
+    const hero = document.getElementById('m-hero'); if (!hero) return;
+    const sched = distributionResults.filter(d => d.supervisors && d.supervisors.length).length;
+    const warn = distributionResults.filter(d => (d.supervisors || []).some(s => s.warn)).length;
+    const periods = Object.values(schedules).reduce((a, l) => a + l.length, 0);
+    const slide = (eyebrow, title, sub, btn, fn) => `<div class="m-slide"><div><small>${eyebrow}</small><h3>${title}</h3><p>${sub}</p></div><div><button class="m-gold-btn" onclick="${fn}">${btn}</button></div></div>`;
+    hero.innerHTML =
+      slide('خطة الزيارات', `المجدولة: ${sched} من ${schools.length} مدرسة`, warn ? `فرق عليها تنبيهات: ${warn}` : 'لا تنبيهات على الفرق', 'عرض جدول الزيارات', "switchView('distribution')") +
+      slide('فريق الزيارة', 'حدّد فريقك بنفسك', 'حسب حصص المدرسة واليوم المتاحين', 'تكوين فريق', 'openTeamBuilder()') +
+      slide('برنامج الدوام', `${periods.toLocaleString('ar')} حصة`, `${schools.length} مدرسة · ${supervisors.length} موجه`, 'فلترة الدوام', "switchView('filter')");
+    document.getElementById('m-dots').innerHTML = '<span class="on"></span><span></span><span></span>';
+  }
+  const _ra = window.renderAllViews;
+  window.renderAllViews = function () { _ra(); refreshHome(); };
+
   // ---------- الإقلاع ----------
   window.addEventListener('DOMContentLoaded', async () => {
-    injectTab(); injectTeamTab(); injectBottomNav();
+    injectTab(); injectTeamTab(); injectBottomNav(); buildMobileHome();
     if (!CFG.SCHEDULE_CSV || !CFG.SUPERVISORS_CSV) return;
     try { await loadFromSheets(); renderAllViews(); showToast('تم تحميل البيانات من Google Sheets'); }
     catch (e) { console.error(e); showToast('تعذر تحميل البيانات: ' + e.message, 'error'); }
