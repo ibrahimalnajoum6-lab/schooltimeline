@@ -4,7 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <meta name="theme-color" content="#0b3b2e">
-    <link rel="manifest" href="manifest.json?v=8">
+    <link rel="manifest" href="manifest.json?v=9">
     <link rel="icon" href="icon-192.png">
     <link rel="apple-touch-icon" href="icon-192.png">
     <title>منظومة الإشراف والتوجيه التربوي للمدارس الشرعية</title>
@@ -86,7 +86,7 @@
             body { background: white !important; }
         }
     </style>
-    <link rel="stylesheet" href="theme.css?v=8">
+    <link rel="stylesheet" href="theme.css?v=9">
 </head>
 <body class="text-slate-800 antialiased min-h-screen flex flex-col custom-scrollbar">
 
@@ -161,7 +161,11 @@
                     </div>
                     <div class="bg-white/10 backdrop-blur-md rounded-2xl p-3 border border-white/10">
                         <label class="block text-[11px] font-semibold text-emerald-200 mb-1">فريق الزيارة</label>
-                        <select id="team-size-per-school" class="hidden"><option value="2" selected>2</option></select>
+                        <select id="team-size-per-school" class="w-full bg-white/20 border border-white/20 text-white rounded-xl px-3 py-1.5 text-xs mb-2 focus:outline-none">
+                            <option value="ALL" selected style="color:#0f172a">كل الموجهين في زيارة واحدة</option>
+                            <option value="2" style="color:#0f172a">فريق من 2</option>
+                            <option value="3" style="color:#0f172a">فريق من 3</option>
+                        </select>
                         <button onclick="openTeamBuilder()" class="w-full bg-emerald-500 hover:bg-emerald-400 text-white rounded-xl px-3 py-2 text-xs font-bold flex items-center justify-center gap-2"><i class="fa-solid fa-people-group"></i><span>حدّد الفريق حسب حصص المدرسة واليوم</span></button>
                     </div>
                 </div>
@@ -577,7 +581,7 @@
         <span id="toast-msg">تمت العملية بنجاح</span>
     </div>
 
-    <script src="config.js?v=8"></script>
+    <script src="config.js?v=9"></script>
     <script>
         const SHARIA_SPECIALTIES = [
             "القرآن الكريم وعلومه",
@@ -756,7 +760,9 @@
 
             const startDateVal = document.getElementById('plan-start-date').value;
             const endDateVal = document.getElementById('plan-end-date').value;
-            const teamSize = parseInt(document.getElementById('team-size-per-school').value) || 2;
+            const teamSizeVal = document.getElementById('team-size-per-school').value;
+            const allMode = teamSizeVal === 'ALL';
+            const teamSize = allMode ? Infinity : (parseInt(teamSizeVal) || 2);
 
             if (!startDateVal || !endDateVal) {
                 showToast("يرجى تحديد تاريخ بداية ونهاية خطة التوزيع!", "error");
@@ -790,14 +796,24 @@
             const maleSupervisors = supervisors.filter(s => s.gender === "ذكر");
             const femaleSupervisors = supervisors.filter(s => s.gender === "أنثى");
 
+            const genderIdx = { 'ذكور': 0, 'إناث': 0 };
             schools.forEach((school, index) => {
                 const isMale = school.gender === "ذكور";
                 const candidatePool = isMale ? maleSupervisors : femaleSupervisors;
-                const visitDateObj = availableDates[index % availableDates.length];
+                // في وضع «كل الموجهين»: مدرسة واحدة لكل جنس في اليوم، لأن المجموعة كلها تزور معاً
+                const slot = allMode ? genderIdx[school.gender]++ : index;
+                const visitDateObj = availableDates[slot % availableDates.length];
                 const visitDateStr = visitDateObj.toISOString().split('T')[0];
 
                 const assignedTeam = [];
                 const usedSpecialties = new Set();
+
+                if (allMode) {
+                    // كل موجهي هذا الجنس في الزيارة؛ أصحاب التخصص المطلوب أولاً
+                    candidatePool.slice()
+                        .sort((a, b) => (b.specialty === school.targetSpecialty) - (a.specialty === school.targetSpecialty))
+                        .forEach(sup => { assignedTeam.push(sup); supervisorVisitCount[sup.id]++; });
+                }
 
                 const primaryMatch = candidatePool
                     .filter(sup => sup.specialty === school.targetSpecialty && !usedSpecialties.has(sup.specialty))
@@ -844,6 +860,13 @@
             persistData();
             renderAllViews();
             switchView('distribution');
+            if (allMode) {
+                const need = Math.max(genderIdx['ذكور'], genderIdx['إناث']);
+                if (need > availableDates.length) {
+                    showToast("تمت الجدولة، لكن المدارس (" + need + ") أكثر من أيام الدوام المتاحة (" + availableDates.length + ")، فتتكرر أكثر من مدرسة في اليوم. وسّع الفترة الزمنية.", "info");
+                    return;
+                }
+            }
             showToast("تمت جدولة الزيارات الدورية لجميع المدارس بنجاح!");
         }
 
@@ -1744,13 +1767,13 @@
             }, 4000);
         }
     </script>
-    <script src="data-loader.js?v=8"></script>
+    <script src="data-loader.js?v=9"></script>
     <script>
         // تحديث فوري: التسجيل + فحص النسخة الجديدة + إعادة التحميل تلقائياً
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
                 const hadController = !!navigator.serviceWorker.controller;
-                navigator.serviceWorker.register('sw.js?v=8', { updateViaCache: 'none' }).then(reg => {
+                navigator.serviceWorker.register('sw.js?v=9', { updateViaCache: 'none' }).then(reg => {
                     reg.update();
                     document.addEventListener('visibilitychange', () => { if (!document.hidden) reg.update(); });
                 }).catch(console.error);
