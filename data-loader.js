@@ -284,7 +284,7 @@
       </div>
       <div class="sticky bottom-28 md:bottom-2 z-30 shadow-lg flex flex-wrap items-center justify-between gap-2 bg-emerald-50 border border-emerald-300 rounded-2xl px-4 py-3">
         <span class="text-xs font-bold text-emerald-900">عدد أعضاء الفريق: <span id="t-count">0</span></span>
-        <div class="flex gap-2"><button onclick="clearTeam()" class="text-xs bg-white border border-slate-300 px-3 py-2.5 rounded-xl font-bold">إلغاء الفريق</button>
+        <div class="flex flex-wrap gap-2"><button onclick="openTeamShare()" class="text-xs bg-white border border-emerald-400 text-emerald-700 px-3 py-2.5 rounded-xl font-bold"><i class="fa-brands fa-whatsapp ml-1"></i>إرسال وتصدير</button><button onclick="clearTeam()" class="text-xs bg-white border border-slate-300 px-3 py-2.5 rounded-xl font-bold">إلغاء الفريق</button>
         <button onclick="saveTeam()" class="text-sm bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2.5 rounded-xl font-bold">حفظ الفريق</button></div>
       </div>
     </div>`);
@@ -504,6 +504,173 @@
     document.getElementById('wa-unsch').checked = !!schoolId;
     try { document.getElementById('wa-phone').value = localStorage.getItem(WA_KEY) || ''; } catch (x) { }
     m._regen(); m.style.display = 'block';
+  };
+
+  // ---------- تصدير فريق الزيارة وإرسال التكليف للموجهين ----------
+  const CC = String(CFG.COUNTRY_CODE || '963');
+  const waNum = p => {
+    let d = String(p || '').replace(/\D/g, ''); if (!d) return '';
+    if (d.startsWith('00')) d = d.slice(2);
+    else if (d.startsWith('0')) d = CC + d.slice(1);
+    else if (!d.startsWith(CC) && d.length <= 9) d = CC + d;
+    return d.length >= 10 ? d : '';
+  };
+  function teamCtx() {
+    const sc = curSchool(); if (!sc) return null;
+    const date = document.getElementById('t-date').value, day = document.getElementById('t-day').value || dayOf(date);
+    const label = date ? fmtDate(date) : (day ? 'يوم ' + day : 'يُحدَّد لاحقاً');
+    return { sc, date, day: DAYS.slice(0, 5).includes(day) ? day : '', label, members: supervisors.filter(s => TEAM.has(s.id)) };
+  }
+  function supLessons(sup, sc, day) {
+    const rx = subjRx(sup.specialty);
+    return (schedules[sc.id] || []).filter(r => rx.test(n(r.subject)) && (!day || r.day === day))
+      .sort((a, b) => DAYS.indexOf(a.day) - DAYS.indexOf(b.day) || a.period - b.period);
+  }
+  const lessonLine = r => `• ح${r.period || '؟'} — ${r.grade} — ${r.subject}${r.teacher ? ' (' + r.teacher + ')' : ''}`;
+  function supMessage(sup, cx, o) {
+    const L = supLessons(sup, cx.sc, cx.day), st = supStats(sup, cx.sc);
+    const out = ['السلام عليكم ورحمة الله وبركاته', `الأستاذ/ة ${sup.name} المحترم/ة،`, '', '*📋 تكليف بزيارة إشرافية*',
+      `🏫 المدرسة: ${cx.sc.name}`, `📅 الموعد: ${cx.label}`];
+    if (o.time) out.push('⏰ الوقت: ' + o.time);
+    if (o.lessons) {
+      if (L.length) {
+        out.push('', `📚 حصص اختصاصك (${sup.specialty}) ${cx.day ? 'يوم ' + cx.day : 'خلال الأسبوع'}:`);
+        L.slice(0, 8).forEach(r => out.push((cx.day ? '' : r.day + ' ') + lessonLine(r)));
+        if (L.length > 8) out.push(`… و${L.length - 8} حصص أخرى`);
+      } else out.push('', '⚠️ لا توجد حصص لاختصاصك في هذا الموعد، يرجى التواصل مع الإدارة.');
+    }
+    const mates = cx.members.filter(m => m.id !== sup.id);
+    if (mates.length) out.push('', '👥 زملاؤك في الفريق: ' + mates.map(m => m.name + (m.specialty ? ' (' + m.specialty + ')' : '')).join('، '));
+    if (o.notes) out.push('', '📝 ' + o.notes);
+    out.push('', 'يرجى تأكيد الاستلام. بارك الله بجهودكم 🌹');
+    return out.join('\n');
+  }
+  function groupMessage(cx, o) {
+    const out = ['*📋 تكليف فريق زيارة إشرافية*', `🏫 المدرسة: ${cx.sc.name}`, `📅 الموعد: ${cx.label}`];
+    if (o.time) out.push('⏰ الوقت: ' + o.time);
+    out.push('', `👥 الفريق (${cx.members.length}):`);
+    cx.members.forEach((m, i) => {
+      const L = supLessons(m, cx.sc, cx.day);
+      out.push(`${NUM[i] || (i + 1) + '.'} *${m.name}* — ${m.specialty || ''}` + (o.lessons ? (L.length ? ` — ${L.length} حصة${cx.day ? '' : ' أسبوعياً'}` : ' — ⚠️ لا حصص') : ''));
+    });
+    if (o.notes) out.push('', '📝 ' + o.notes);
+    out.push('', '_أُعدّ عبر منظومة الإشراف_');
+    return out.join('\n');
+  }
+  function xlsxDownload(sheets, file) {
+    if (typeof XLSX === 'undefined') return showToast('مكتبة Excel لم تُحمَّل بعد، أعد المحاولة', 'error');
+    const wb = XLSX.utils.book_new();
+    sheets.forEach(([name, rows, w]) => {
+      const ws = XLSX.utils.json_to_sheet(rows.length ? rows : [{ 'ملاحظة': 'لا بيانات' }]);
+      ws['!cols'] = (w || []).map(x => ({ wch: x })); ws['!views'] = [{ RTL: true }];
+      XLSX.utils.book_append_sheet(wb, ws, name.slice(0, 31));
+    });
+    wb.Workbook = { Views: [{ RTL: true }] };
+    XLSX.writeFile(wb, file);
+  }
+  function entryRows(sc, members, day, label) {
+    const team = [], les = [];
+    members.forEach(m => {
+      const st = supStats(m, sc), L = supLessons(m, sc, day);
+      team.push({ 'المدرسة': sc.name, 'موعد الزيارة': label, 'الموجه': m.name, 'الاختصاص': m.specialty, 'الهاتف': m.phone === '-' ? '' : m.phone,
+        'حصصه أسبوعياً': st.weekly, 'حصصه يوم الزيارة': day ? L.length : '', 'الحالة': st.warn || 'متاح' });
+      L.forEach(r => les.push({ 'المدرسة': sc.name, 'الموجه': m.name, 'اليوم': r.day, 'الحصة': r.period, 'الصف': r.grade, 'المادة': r.subject, 'المدرس': r.teacher }));
+    });
+    return { team, les };
+  }
+  window.exportTeamXlsx = function (all) {
+    if (!all) {
+      const cx = teamCtx(); if (!cx || !cx.members.length) return showToast('اختر أعضاء الفريق أولاً', 'error');
+      const { team, les } = entryRows(cx.sc, cx.members, cx.day, cx.label);
+      return xlsxDownload([['الفريق', team, [32, 18, 26, 22, 14, 12, 14, 36]], ['حصص الزيارة', les, [32, 26, 10, 8, 24, 20, 24]]], 'فريق_زيارة_' + cx.sc.name.replace(/\s+/g, '_') + '.xlsx');
+    }
+    const T = [], Ls = [];
+    distributionResults.filter(d => d.supervisors && d.supervisors.length).forEach(d => {
+      const sc = schools.find(s => s.id === d.schoolId); if (!sc) return;
+      const v = d.visitDate || '', day = DAYS.includes(v) ? v : dayOf(v), label = v ? (DAYS.includes(v) ? 'يوم ' + v : fmtDate(v)) : 'غير محدد';
+      const mem = d.supervisors.map(x => supervisors.find(s => s.id === x.id)).filter(Boolean);
+      const r = entryRows(sc, mem, DAYS.slice(0, 5).includes(day) ? day : '', label); T.push(...r.team); Ls.push(...r.les);
+    });
+    if (!T.length) return showToast('لا توجد فرق محفوظة للتصدير', 'error');
+    const bySup = {}; T.forEach(r => { (bySup[r['الموجه']] = bySup[r['الموجه']] || []).push(r['المدرسة'] + ' (' + r['موعد الزيارة'] + ')'); });
+    const sum = Object.entries(bySup).map(([k, v]) => ({ 'الموجه': k, 'عدد الزيارات': v.length, 'المدارس': v.join(' | ') }));
+    xlsxDownload([['كل الفرق', T, [32, 18, 26, 22, 14, 12, 14, 36]], ['حصص الزيارات', Ls, [32, 26, 10, 8, 24, 20, 24]], ['ملخص حسب الموجه', sum, [26, 12, 80]]], 'خطة_الزيارات_كل_الفرق.xlsx');
+  };
+  window.exportTeamIcs = function () {
+    const cx = teamCtx(); if (!cx) return;
+    if (!cx.date) return showToast('حدد «تاريخ الزيارة» لإنشاء ملف التقويم', 'error');
+    const d = cx.date.replace(/-/g, ''), nx = new Date(cx.date + 'T00:00:00'); nx.setDate(nx.getDate() + 1);
+    const d2 = nx.getFullYear() + String(nx.getMonth() + 1).padStart(2, '0') + String(nx.getDate()).padStart(2, '0');
+    const t = v => String(v).replace(/[\\;,]/g, m => '\\' + m).replace(/\n/g, '\\n');
+    const ics = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Supervision//AR', 'BEGIN:VEVENT', 'UID:' + cx.sc.id + '-' + d + '@supervision',
+      'DTSTAMP:' + new Date().toISOString().replace(/[-:]/g, '').slice(0, 15) + 'Z', 'DTSTART;VALUE=DATE:' + d, 'DTEND;VALUE=DATE:' + d2,
+      'SUMMARY:' + t('زيارة إشرافية - ' + cx.sc.name), 'DESCRIPTION:' + t('الفريق: ' + cx.members.map(m => m.name).join('، ')), 'END:VEVENT', 'END:VCALENDAR'].join('\r\n');
+    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([ics], { type: 'text/calendar;charset=utf-8' }));
+    a.download = 'زيارة_' + cx.sc.name.replace(/\s+/g, '_') + '.ics'; document.body.appendChild(a); a.click(); a.remove();
+  };
+  function ensureTxModal() {
+    if (document.getElementById('tx-modal')) return;
+    document.body.insertAdjacentHTML('beforeend', `
+    <div id="tx-modal" class="fixed inset-0 z-50 no-print" style="display:none">
+      <div class="absolute inset-0 bg-slate-900/50" data-tx="close"></div>
+      <div class="absolute bottom-0 inset-x-0 md:inset-x-auto md:left-1/2 md:-translate-x-1/2 md:bottom-auto md:top-6 md:w-[620px] bg-white rounded-t-3xl md:rounded-3xl p-4 space-y-3 max-h-[92vh] overflow-y-auto" style="padding-bottom:calc(16px + env(safe-area-inset-bottom))">
+        <div class="flex items-center justify-between">
+          <h3 class="text-base font-bold text-slate-900"><i class="fa-brands fa-whatsapp text-emerald-600 ml-1"></i>إرسال التكليف وتصدير الفريق</h3>
+          <button data-tx="close" class="w-9 h-9 rounded-xl bg-slate-100 text-slate-600"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div id="tx-head" class="text-xs font-bold text-slate-700 bg-slate-50 rounded-xl px-3 py-2"></div>
+        <div class="grid grid-cols-2 gap-2">
+          <input id="tx-time" placeholder="وقت الوصول (اختياري) مثل 8:00 صباحاً" class="text-sm border border-slate-200 rounded-xl px-3 py-2 bg-slate-50">
+          <label class="flex items-center gap-2 text-xs font-bold text-slate-600 bg-slate-50 border border-slate-200 rounded-xl px-3"><input type="checkbox" id="tx-les" checked> إدراج حصص كل موجه</label>
+        </div>
+        <textarea id="tx-notes" rows="2" placeholder="ملاحظات للموجهين (محور الزيارة، مكان التجمع، ما يُحضَر…)" class="w-full text-sm border border-slate-200 rounded-xl p-3 bg-slate-50"></textarea>
+        <div class="text-xs font-bold text-slate-600">إرسال فردي (رسالة مخصصة لكل موجه):</div>
+        <div id="tx-list" class="space-y-2"></div>
+        <div class="text-xs font-bold text-slate-600 pt-1">رسالة جماعية للمجموعة (قابلة للتعديل):</div>
+        <textarea id="tx-group" rows="8" class="w-full text-sm border border-slate-200 rounded-2xl p-3 bg-slate-50 leading-relaxed" style="-webkit-user-select:text;user-select:text"></textarea>
+        <div class="grid grid-cols-3 gap-2">
+          <button data-tx="gshare" class="bg-emerald-600 text-white text-xs font-bold rounded-xl py-2.5"><i class="fa-solid fa-share-nodes ml-1"></i>مشاركة للمجموعة</button>
+          <button data-tx="gcopy" class="bg-slate-100 text-slate-700 text-xs font-bold rounded-xl py-2.5"><i class="fa-regular fa-copy ml-1"></i>نسخ</button>
+          <button data-tx="ics" class="bg-slate-100 text-slate-700 text-xs font-bold rounded-xl py-2.5"><i class="fa-regular fa-calendar-plus ml-1"></i>ملف تقويم</button>
+          <button data-tx="xl" class="bg-slate-100 text-slate-700 text-xs font-bold rounded-xl py-2.5"><i class="fa-solid fa-file-excel ml-1"></i>Excel لهذا الفريق</button>
+          <button data-tx="xlall" class="col-span-2 bg-slate-100 text-slate-700 text-xs font-bold rounded-xl py-2.5"><i class="fa-solid fa-file-excel ml-1"></i>Excel لكل الفرق المحفوظة (+ملخص لكل موجه)</button>
+        </div>
+        <p class="text-[11px] text-slate-400">يُنشأ رقم واتساب من رقم الهاتف تلقائياً (رمز الدولة ${CC} قابل للتغيير في config.js). الموجه بلا رقم صحيح يظهر معطلاً.</p>
+      </div>
+    </div>`);
+    const m = document.getElementById('tx-modal'), sent = new Set();
+    const opts = () => ({ time: document.getElementById('tx-time').value.trim(), notes: document.getElementById('tx-notes').value.trim(), lessons: document.getElementById('tx-les').checked });
+    const render = () => {
+      const cx = teamCtx(); if (!cx) return; const o = opts();
+      document.getElementById('tx-head').textContent = `${cx.sc.name} — ${cx.label} — ${cx.members.length} أعضاء`;
+      document.getElementById('tx-list').innerHTML = cx.members.map(s => {
+        const num = waNum(s.phone), L = supLessons(s, cx.sc, cx.day).length, done = sent.has(s.id);
+        return `<div class="flex items-center gap-2 border border-slate-200 rounded-xl px-3 py-2"><div class="flex-1 min-w-0"><div class="text-sm font-bold truncate">${esc(s.name)} ${done ? '<span class="text-emerald-600">✓</span>' : ''}</div><div class="text-[11px] text-slate-500">${esc(s.specialty)} · ${cx.day ? L + ' حصة يوم الزيارة' : 'بلا يوم محدد'}${num ? '' : ' · <span class="text-rose-600">لا رقم صالح</span>'}</div></div>
+          <button data-tx="send" data-id="${s.id}" ${num ? '' : 'disabled'} class="${num ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-400'} text-xs font-bold rounded-lg px-3 py-2"><i class="fa-brands fa-whatsapp ml-1"></i>إرسال</button>
+          <button data-tx="copy1" data-id="${s.id}" class="bg-slate-100 text-slate-700 text-xs rounded-lg px-2.5 py-2"><i class="fa-regular fa-copy"></i></button></div>`;
+      }).join('') || '<div class="text-xs text-slate-400 p-2">لم يُختر أحد في الفريق.</div>';
+      document.getElementById('tx-group').value = groupMessage(cx, o);
+    };
+    ['tx-time', 'tx-notes', 'tx-les'].forEach(id => document.getElementById(id).addEventListener('input', render));
+    m._render = render;
+    const copy = async t => { try { await navigator.clipboard.writeText(t); } catch (x) { const a = document.createElement('textarea'); a.value = t; document.body.appendChild(a); a.select(); document.execCommand('copy'); a.remove(); } showToast('تم النسخ'); };
+    m.addEventListener('click', async e => {
+      const b = e.target.closest('[data-tx]'); if (!b) return; const act = b.dataset.tx, cx = teamCtx(), o = opts();
+      const sup = cx && cx.members.find(s => s.id === b.dataset.id);
+      if (act === 'close') m.style.display = 'none';
+      else if (act === 'send' && sup) { window.open('https://wa.me/' + waNum(sup.phone) + '?text=' + encodeURIComponent(supMessage(sup, cx, o)), '_blank'); sent.add(sup.id); render(); }
+      else if (act === 'copy1' && sup) copy(supMessage(sup, cx, o));
+      else if (act === 'gcopy') copy(document.getElementById('tx-group').value);
+      else if (act === 'gshare') { const t = document.getElementById('tx-group').value; if (navigator.share) { try { await navigator.share({ text: t }); } catch (x) { } } else window.open('https://wa.me/?text=' + encodeURIComponent(t), '_blank'); }
+      else if (act === 'ics') exportTeamIcs();
+      else if (act === 'xl') exportTeamXlsx(false);
+      else if (act === 'xlall') exportTeamXlsx(true);
+    });
+  }
+  window.openTeamShare = function () {
+    const cx = teamCtx(); if (!cx) return;
+    if (!cx.members.length) return showToast('اختر أعضاء الفريق أولاً', 'error');
+    ensureTxModal(); const m = document.getElementById('tx-modal'); m._render(); m.style.display = 'block';
   };
 
   // ---------- شريط التنقل السفلي للجوال ----------
