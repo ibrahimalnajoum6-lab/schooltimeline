@@ -1,6 +1,6 @@
 // ===== Service Worker: يجلب آخر نسخة دائماً من الشبكة، ويرجع للكاش عند انقطاع الاتصال =====
 // غيّر رقم النسخة عند كل تحديث لتنظيف الكاش القديم
-const VERSION = 'v7';
+const VERSION = 'v8';
 const CACHE = 'supervision-app-' + VERSION;
 
 self.addEventListener('install', () => self.skipWaiting());
