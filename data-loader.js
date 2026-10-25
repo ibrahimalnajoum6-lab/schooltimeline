@@ -264,7 +264,29 @@
   const specIdx = t => SPEC[SPEC.length - 1][0].test(t) ? SPEC.length - 1 : SPEC.findIndex(x => x[0].test(t));
   const oneRx = part => { const t = n(part), i = specIdx(t); return i >= 0 ? SPEC[i][1] : new RegExp(t.split(' ').filter(w => w.length > 2).join('|') || '$^'); };
   const specKey = part => { const i = specIdx(n(part)); return i >= 0 ? LBL[i] : String(part).trim(); };
-  const specLabel = sup => [...new Set(splitSpecs(sup.specialty).map(specKey))].join('، ');
+  // ===== مطابقة حرفية لأسماء المواد كما هي في ورقة الجدول (للاختصاصات الشرعية الدقيقة) =====
+  const STOP = new Set(['اسلامي', 'اسلاميه', 'علوم', 'علم', 'ماده', 'في', 'من', 'و']);
+  const SYN = { مواريث: 'فرائض', فرايض: 'فرائض' };
+  const toks = t => n(t).replace(/ئ/g, 'ي').replace(/ؤ/g, 'و').replace(/[.،,;:+\/\\\-()]/g, ' ').split(' ')
+    .map(w => w.replace(/^و(?=.{3,})/, '').replace(/^ال/, '')).map(w => SYN[w] || w).filter(w => w && !STOP.has(w));
+  const SH = SPEC.length - 1;
+  const GENERIC_SH = new Set(['شريعه', 'شرعيه', 'شرعي', 'ديني', 'دينيه', 'دين', 'تربيه']);   // «شريعة» وحدها = كل المواد الشرعية
+  const exactSh = part => specIdx(n(part)) === SH && !(toks(part).length === 1 && GENERIC_SH.has(toks(part)[0]));
+  const chipKey = part => exactSh(part) ? toks(part).join(' ') : specKey(part);
+  const chipText = part => exactSh(part) ? String(part).trim().replace(/[.\s]+$/, '') : specKey(part);
+  const uniqParts = spec => { const seen = new Set(), out = []; splitSpecs(spec).forEach(p => { const k = chipKey(p); if (k && !seen.has(k)) { seen.add(k); out.push(chipText(p)); } }); return out; };
+  const specLabel = sup => uniqParts(sup.specialty).join('، ');
+  const subjMatch = spec => {
+    const fns = splitSpecs(spec).map(part => {
+      if (exactSh(part)) {
+        const P = toks(part);
+        return subj => { const S = toks(subj); if (!S.length || !P.length) return false; return (S.every(w => P.includes(w)) && (S.length > 1 || SPEC[SH][0].test(S[0]))) || P.every(w => S.includes(w)); };
+      }
+      const rx = oneRx(part), nonSh = specIdx(n(part)) >= 0 && specIdx(n(part)) !== SH;   // مادة شرعية (مثل «تاريخ التشريع») لا تُحسب لموجه التاريخ/اللغة…
+      return subj => rx.test(n(subj)) && !(nonSh && SPEC[SH][0].test(n(subj)));
+    });
+    return subj => fns.some(f => f(subj));
+  };
   const subjRx = spec => { const parts = splitSpecs(spec); if (parts.length <= 1) return oneRx(spec); return new RegExp(parts.map(x => oneRx(x).source).join('|')); };
   window.supHasSpec = (sup, target) => splitSpecs(sup.specialty).some(x => n(x) === n(target) || specKey(x) === specKey(target));
   const dayOf = d => d ? DAYS[new Date(d + 'T00:00:00').getDay()] || '' : '';
@@ -341,14 +363,15 @@
     renderTeam();
   }
   function supStats(sup, school) {
-    const rx = subjRx(sup.specialty), rows = (schedules[school.id] || []).filter(r => rx.test(n(r.subject)));
+    const mt = subjMatch(sup.specialty), rows = (schedules[school.id] || []).filter(r => mt(r.subject));
     const dy = document.getElementById('t-day').value;
     const weekly = rows.length, onDay = dy ? rows.filter(r => r.day === dy).length : null;
     const days = [...new Set(rows.map(r => r.day))];
     let warn = '';
     if (!weekly) warn = 'لا توجد حصص لاختصاصه في هذه المدرسة';
     else if (onDay === 0) warn = `لا حصص لاختصاصه يوم ${dy} (يتوفر: ${days.join('، ')})`;
-    return { weekly, onDay, warn };
+    const subs = {}; (dy ? rows.filter(r => r.day === dy) : rows).forEach(r => { const k = String(r.subject || '').trim() || '—'; subs[k] = (subs[k] || 0) + 1; });
+    return { weekly, onDay, warn, subs };
   }
   function renderTeam() {
     const sc = curSchool(); if (!sc) return;
@@ -376,6 +399,7 @@
               <span class="bg-slate-100 rounded-lg px-2 py-0.5">أسبوعياً: <b>${st.weekly}</b></span>
               ${st.onDay === null ? '' : `<span class="bg-slate-100 rounded-lg px-2 py-0.5">يوم الزيارة: <b>${st.onDay}</b></span>`}
             </div>
+            ${Object.keys(st.subs).length ? `<div class="mt-1.5 text-[11px] text-slate-500">المواد${document.getElementById('t-day').value ? ' يوم الزيارة' : ''}: ${Object.entries(st.subs).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([k, v]) => esc(k) + ' (' + v + ')').join('، ')}</div>` : ''}
             <div class="mt-2 text-[11px] ${bad ? 'text-amber-700 font-bold' : 'text-emerald-700'}">${bad ? '⚠ ' + esc(st.warn) : '✓ لديه حصص متاحة'}</div>
           </div>
         </div>
@@ -383,7 +407,8 @@
     }).join('');
     document.getElementById('t-count').textContent = TEAM.size;
     const dy = document.getElementById('t-day').value, rows = (schedules[sc.id] || []).filter(r => !dy || r.day === dy);
-    const specs = [...new Set(supervisors.flatMap(s => splitSpecs(s.specialty).map(specKey)))].map(sp => [sp, rows.filter(r => subjRx(sp).test(n(r.subject))).length]);
+    const chipMap = new Map(); supervisors.forEach(s => splitSpecs(s.specialty).forEach(p => { const k = chipKey(p); if (k && !chipMap.has(k)) chipMap.set(k, chipText(p)); }));
+    const specs = [...chipMap.values()].map(sp => { const mt = subjMatch(sp); return [sp, rows.filter(r => mt(r.subject)).length]; });
     document.getElementById('t-avail').innerHTML = `<b>المتاح في المدرسة ${dy ? 'يوم ' + dy : 'خلال الأسبوع'}:</b> ` + specs.map(([sp, c]) =>
       `<span class="inline-block m-0.5 px-2 py-0.5 rounded-lg border ${c ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-rose-50 border-rose-200 text-rose-700'}">${esc(sp)}: ${c} حصة</span>`).join('');
     document.getElementById('t-alert').innerHTML = warns.length ? `<div class="bg-amber-50 border border-amber-300 text-amber-900 rounded-xl p-3 text-xs space-y-1"><b>تنبيه: أعضاء مختارون بلا حصص من اختصاصهم</b>${warns.map(w => `<div>• ${esc(w)}</div>`).join('')}</div>` : '';
@@ -554,8 +579,8 @@
     return { sc, date, day: DAYS.slice(0, 5).includes(day) ? day : '', label, members: supervisors.filter(s => TEAM.has(s.id)) };
   }
   function supLessons(sup, sc, day) {
-    const rx = subjRx(sup.specialty);
-    return (schedules[sc.id] || []).filter(r => rx.test(n(r.subject)) && (!day || r.day === day))
+    const mt = subjMatch(sup.specialty);
+    return (schedules[sc.id] || []).filter(r => mt(r.subject) && (!day || r.day === day))
       .sort((a, b) => DAYS.indexOf(a.day) - DAYS.indexOf(b.day) || a.period - b.period);
   }
   const lessonLine = r => `• ح${r.period || '؟'} — ${r.grade} — ${r.subject}${r.teacher ? ' (' + r.teacher + ')' : ''}`;
