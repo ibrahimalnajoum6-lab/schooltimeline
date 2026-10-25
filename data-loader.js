@@ -255,9 +255,18 @@
     [/رياضيات/, /رياضيات|جبر|هندس|تفاضل|احصاء|حساب/], [/احياء/, /احياء|حياتيه|بيولوج|علوم/],
     [/فيزياء|كيمياء/, /فيزياء|كيمياء|كمياء|كيميا|فيزيا|علوم/], [/فلسف/, /فلسف|منطق|نفس|اجتماعيات/],
     [/جغراف/, /جغراف|اجتماعيات/], [/تاريخ/, /تاريخ|اجتماعيات/],
-    [/شريع|شرع|فقه|عقيد|قران|حديث/, /عقيد|فقه|حديث|تفسير|قران|سيره|تجويد|تجو|دعوه|خطابه|اصول|شرع|شريع|اسلامي|توحيد|شمائل|استحفاظ|فرائض|تلاوه|مواريث|مصطلح/]
+    [/شريع|شرع|فقه|عقيد|قران|حديث|اصول|فرائض|تفسير|سيره|تجويد|دعوه|خطابه|حوار|مواريث|توحيد|مصطلح|تشريع/, /عقيد|فقه|حديث|تفسير|قران|سيره|تجويد|تجو|دعوه|خطابه|اصول|شرع|شريع|اسلامي|توحيد|شمائل|استحفاظ|فرائض|تلاوه|مواريث|مصطلح/]
   ];
-  const subjRx = spec => { const t = n(spec); const hit = SPEC.find(s => s[0].test(t)); return hit ? hit[1] : new RegExp(t.split(' ').filter(w => w.length > 2).join('|') || '$^'); };
+  // يدعم أكثر من اختصاص في خانة واحدة مفصولة بـ «،» أو «,» أو «/» أو «+» أو «|» أو سطر جديد أو « و »
+  const splitSpecs = spec => String(spec || '').split(/[،,؛;\/\\|+\n]|\s+و\s+/).map(x => x.trim()).filter(Boolean);
+  const LBL = ['لغة إنكليزية', 'لغة عربية', 'رياضيات', 'علم أحياء', 'فيزياء وكيمياء', 'فلسفة', 'جغرافيا', 'تاريخ', 'شريعة'];
+  // الشريعة لها الأولوية: «الأصول وتاريخ التشريع» شرعي وليس تاريخاً
+  const specIdx = t => SPEC[SPEC.length - 1][0].test(t) ? SPEC.length - 1 : SPEC.findIndex(x => x[0].test(t));
+  const oneRx = part => { const t = n(part), i = specIdx(t); return i >= 0 ? SPEC[i][1] : new RegExp(t.split(' ').filter(w => w.length > 2).join('|') || '$^'); };
+  const specKey = part => { const i = specIdx(n(part)); return i >= 0 ? LBL[i] : String(part).trim(); };
+  const specLabel = sup => [...new Set(splitSpecs(sup.specialty).map(specKey))].join('، ');
+  const subjRx = spec => { const parts = splitSpecs(spec); if (parts.length <= 1) return oneRx(spec); return new RegExp(parts.map(x => oneRx(x).source).join('|')); };
+  window.supHasSpec = (sup, target) => splitSpecs(sup.specialty).some(x => n(x) === n(target) || specKey(x) === specKey(target));
   const dayOf = d => d ? DAYS[new Date(d + 'T00:00:00').getDay()] || '' : '';
   let TEAM = new Set();
 
@@ -346,14 +355,14 @@
     const all = document.getElementById('t-all').checked;
     const q = n(document.getElementById('t-q').value), onlySel = document.getElementById('t-sel').checked;
     const base = supervisors.filter(s => all || (sc.gender === 'ذكور') === (s.gender === 'ذكر'));
-    const list = base.filter(s => (!q || n(s.name + ' ' + s.specialty).includes(q)) && (!onlySel || TEAM.has(s.id)));
+    const list = base.filter(s => (!q || n(s.name + ' ' + s.specialty + ' ' + specLabel(s)).includes(q)) && (!onlySel || TEAM.has(s.id)));
     document.getElementById('t-qc').textContent = (q || onlySel) ? `${list.length} من ${base.length}` : '';
     const warns = [];
     document.getElementById('t-body').innerHTML = list.map(s => {
       const st = supStats(s, sc), on = TEAM.has(s.id);
-      if (on && st.warn) warns.push(`${s.name} (${s.specialty}): ${st.warn}`);
+      if (on && st.warn) warns.push(`${s.name} (${specLabel(s)}): ${st.warn}`);
       const badge = st.warn ? `<span class="text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-0.5">⚠ ${esc(st.warn)}</span>` : '<span class="text-emerald-700">✓ متاح</span>';
-      return `<tr class="${on ? 'bg-emerald-50/60' : ''}"><td class="p-3"><input type="checkbox" data-sup="${s.id}" ${on ? 'checked' : ''}></td><td class="p-3 font-semibold">${esc(s.name)}</td><td class="p-3">${esc(s.specialty)}</td><td class="p-3">${st.weekly}</td><td class="p-3">${st.onDay ?? '—'}</td><td class="p-3">${badge}</td></tr>`;
+      return `<tr class="${on ? 'bg-emerald-50/60' : ''}"><td class="p-3"><input type="checkbox" data-sup="${s.id}" ${on ? 'checked' : ''}></td><td class="p-3 font-semibold">${esc(s.name)}</td><td class="p-3">${esc(specLabel(s))}</td><td class="p-3">${st.weekly}</td><td class="p-3">${st.onDay ?? '—'}</td><td class="p-3">${badge}</td></tr>`;
     }).join('') || '<tr><td colspan="6" class="p-6 text-center text-slate-400">لا يوجد موجهون</td></tr>';
     document.getElementById('t-cards').innerHTML = list.map(s => {
       const st = supStats(s, sc), on = TEAM.has(s.id), bad = !!st.warn;
@@ -362,7 +371,7 @@
           <input type="checkbox" data-sup="${s.id}" ${on ? 'checked' : ''} class="mt-1 w-6 h-6 accent-emerald-600 shrink-0">
           <div class="flex-1 min-w-0">
             <div class="font-bold text-sm text-slate-900">${esc(s.name)}</div>
-            <div class="text-xs text-emerald-700 font-semibold">${esc(s.specialty)}</div>
+            <div class="text-xs text-emerald-700 font-semibold">${esc(specLabel(s))}</div>
             <div class="flex flex-wrap gap-1.5 mt-2 text-[11px]">
               <span class="bg-slate-100 rounded-lg px-2 py-0.5">أسبوعياً: <b>${st.weekly}</b></span>
               ${st.onDay === null ? '' : `<span class="bg-slate-100 rounded-lg px-2 py-0.5">يوم الزيارة: <b>${st.onDay}</b></span>`}
@@ -374,14 +383,14 @@
     }).join('');
     document.getElementById('t-count').textContent = TEAM.size;
     const dy = document.getElementById('t-day').value, rows = (schedules[sc.id] || []).filter(r => !dy || r.day === dy);
-    const specs = [...new Set(supervisors.map(s => s.specialty))].map(sp => [sp, rows.filter(r => subjRx(sp).test(n(r.subject))).length]);
+    const specs = [...new Set(supervisors.flatMap(s => splitSpecs(s.specialty).map(specKey)))].map(sp => [sp, rows.filter(r => subjRx(sp).test(n(r.subject))).length]);
     document.getElementById('t-avail').innerHTML = `<b>المتاح في المدرسة ${dy ? 'يوم ' + dy : 'خلال الأسبوع'}:</b> ` + specs.map(([sp, c]) =>
       `<span class="inline-block m-0.5 px-2 py-0.5 rounded-lg border ${c ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-rose-50 border-rose-200 text-rose-700'}">${esc(sp)}: ${c} حصة</span>`).join('');
     document.getElementById('t-alert').innerHTML = warns.length ? `<div class="bg-amber-50 border border-amber-300 text-amber-900 rounded-xl p-3 text-xs space-y-1"><b>تنبيه: أعضاء مختارون بلا حصص من اختصاصهم</b>${warns.map(w => `<div>• ${esc(w)}</div>`).join('')}</div>` : '';
   }
   window.saveTeam = function () {
     const sc = curSchool(); if (!sc) return;
-    const team = supervisors.filter(s => TEAM.has(s.id)).map(s => ({ id: s.id, name: s.name, specialty: s.specialty, phone: s.phone, gender: s.gender, warn: supStats(s, sc).warn }));
+    const team = supervisors.filter(s => TEAM.has(s.id)).map(s => ({ id: s.id, name: s.name, specialty: specLabel(s), phone: s.phone, gender: s.gender, warn: supStats(s, sc).warn }));
     const entry = { schoolId: sc.id, schoolName: sc.name, gender: sc.gender, stage: sc.stage, sections: sc.sections, zone: sc.zone,
       visitDate: document.getElementById('t-date').value || document.getElementById('t-day').value, supervisors: team, manual: true };
     const i = distributionResults.findIndex(d => d.schoolId === sc.id);
@@ -417,7 +426,7 @@
           <span class="shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full ${r.gender === 'ذكور' ? 'bg-blue-100 text-blue-800' : 'bg-rose-100 text-rose-800'}">${r.gender === 'ذكور' ? 'بنين' : 'بنات'}</span>
         </div>
         <div class="text-xs text-emerald-800 font-semibold mt-1"><i class="fa-solid fa-calendar-day ml-1"></i>${esc(r.visitDate || 'زيارة دورية مفتوحة')}</div>
-        <div class="mt-2 flex flex-wrap gap-1">${(r.supervisors || []).map(s => `<span class="bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-[11px]"><b>${esc(s.name)}</b> <span class="text-emerald-700">(${esc(s.specialty)})</span>${s.warn ? ' <span class="text-amber-500" title="' + esc(s.warn) + '">⚠</span>' : ''}</span>`).join('') || '<span class="text-amber-600 text-[11px]">لم يُحدَّد فريق</span>'}</div>
+        <div class="mt-2 flex flex-wrap gap-1">${(r.supervisors || []).map(s => `<span class="bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-[11px]"><b>${esc(s.name)}</b> <span class="text-emerald-700">(${esc(specLabel(s))})</span>${s.warn ? ' <span class="text-amber-500" title="' + esc(s.warn) + '">⚠</span>' : ''}</span>`).join('') || '<span class="text-amber-600 text-[11px]">لم يُحدَّد فريق</span>'}</div>
         <div class="grid grid-cols-3 gap-2 mt-3">
           <button onclick="openTeamBuilder('${r.schoolId}')" class="bg-emerald-600 text-white text-xs font-bold rounded-xl py-2.5"><i class="fa-solid fa-people-group ml-1"></i>تحديد الفريق</button>
           <button onclick="viewSchoolScheduleModal('${r.schoolId}')" class="bg-slate-100 text-slate-700 text-xs font-bold rounded-xl py-2.5"><i class="fa-solid fa-calendar-check ml-1"></i>الحصص</button>
@@ -557,13 +566,13 @@
     if (o.time) out.push('⏰ الوقت: ' + o.time);
     if (o.lessons) {
       if (L.length) {
-        out.push('', `📚 حصص اختصاصك (${sup.specialty}) ${cx.day ? 'يوم ' + cx.day : 'خلال الأسبوع'}:`);
+        out.push('', `📚 حصص اختصاصك (${specLabel(sup)}) ${cx.day ? 'يوم ' + cx.day : 'خلال الأسبوع'}:`);
         L.slice(0, 8).forEach(r => out.push((cx.day ? '' : r.day + ' ') + lessonLine(r)));
         if (L.length > 8) out.push(`… و${L.length - 8} حصص أخرى`);
       } else out.push('', '⚠️ لا توجد حصص لاختصاصك في هذا الموعد، يرجى التواصل مع الإدارة.');
     }
     const mates = cx.members.filter(m => m.id !== sup.id);
-    if (mates.length) out.push('', '👥 زملاؤك في الفريق: ' + mates.map(m => m.name + (m.specialty ? ' (' + m.specialty + ')' : '')).join('، '));
+    if (mates.length) out.push('', '👥 زملاؤك في الفريق: ' + mates.map(m => m.name + (m.specialty ? ' (' + specLabel(m) + ')' : '')).join('، '));
     if (o.notes) out.push('', '📝 ' + o.notes);
     out.push('', 'يرجى تأكيد الاستلام. بارك الله بجهودكم 🌹');
     return out.join('\n');
@@ -574,7 +583,7 @@
     out.push('', `👥 الفريق (${cx.members.length}):`);
     cx.members.forEach((m, i) => {
       const L = supLessons(m, cx.sc, cx.day);
-      out.push(`${NUM[i] || (i + 1) + '.'} *${m.name}* — ${m.specialty || ''}` + (o.lessons ? (L.length ? ` — ${L.length} حصة${cx.day ? '' : ' أسبوعياً'}` : ' — ⚠️ لا حصص') : ''));
+      out.push(`${NUM[i] || (i + 1) + '.'} *${m.name}* — ${specLabel(m)}` + (o.lessons ? (L.length ? ` — ${L.length} حصة${cx.day ? '' : ' أسبوعياً'}` : ' — ⚠️ لا حصص') : ''));
     });
     if (o.notes) out.push('', '📝 ' + o.notes);
     out.push('', '_أُعدّ عبر منظومة الإشراف_');
@@ -595,7 +604,7 @@
     const team = [], les = [];
     members.forEach(m => {
       const st = supStats(m, sc), L = supLessons(m, sc, day);
-      team.push({ 'المدرسة': sc.name, 'موعد الزيارة': label, 'الموجه': m.name, 'الاختصاص': m.specialty, 'الهاتف': m.phone === '-' ? '' : m.phone,
+      team.push({ 'المدرسة': sc.name, 'موعد الزيارة': label, 'الموجه': m.name, 'الاختصاص': specLabel(m), 'الهاتف': m.phone === '-' ? '' : m.phone,
         'حصصه أسبوعياً': st.weekly, 'حصصه يوم الزيارة': day ? L.length : '', 'الحالة': st.warn || 'متاح' });
       L.forEach(r => les.push({ 'المدرسة': sc.name, 'الموجه': m.name, 'اليوم': r.day, 'الحصة': r.period, 'الصف': r.grade, 'المادة': r.subject, 'المدرس': r.teacher }));
     });
@@ -668,7 +677,7 @@
       document.getElementById('tx-head').textContent = `${cx.sc.name} — ${cx.label} — ${cx.members.length} أعضاء`;
       document.getElementById('tx-list').innerHTML = cx.members.map(s => {
         const num = waNum(s.phone), L = supLessons(s, cx.sc, cx.day).length, done = sent.has(s.id);
-        return `<div class="flex items-center gap-2 border border-slate-200 rounded-xl px-3 py-2"><div class="flex-1 min-w-0"><div class="text-sm font-bold truncate">${esc(s.name)} ${done ? '<span class="text-emerald-600">✓</span>' : ''}</div><div class="text-[11px] text-slate-500">${esc(s.specialty)} · ${cx.day ? L + ' حصة يوم الزيارة' : 'بلا يوم محدد'}${num ? '' : ' · <span class="text-rose-600">لا رقم صالح</span>'}</div></div>
+        return `<div class="flex items-center gap-2 border border-slate-200 rounded-xl px-3 py-2"><div class="flex-1 min-w-0"><div class="text-sm font-bold truncate">${esc(s.name)} ${done ? '<span class="text-emerald-600">✓</span>' : ''}</div><div class="text-[11px] text-slate-500">${esc(specLabel(s))} · ${cx.day ? L + ' حصة يوم الزيارة' : 'بلا يوم محدد'}${num ? '' : ' · <span class="text-rose-600">لا رقم صالح</span>'}</div></div>
           <button data-tx="send" data-id="${s.id}" ${num ? '' : 'disabled'} class="${num ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-400'} text-xs font-bold rounded-lg px-3 py-2"><i class="fa-brands fa-whatsapp ml-1"></i>إرسال</button>
           <button data-tx="copy1" data-id="${s.id}" class="bg-slate-100 text-slate-700 text-xs rounded-lg px-2.5 py-2"><i class="fa-regular fa-copy"></i></button></div>`;
       }).join('') || '<div class="text-xs text-slate-400 p-2">لم يُختر أحد في الفريق.</div>';
