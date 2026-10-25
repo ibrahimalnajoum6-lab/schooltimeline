@@ -395,11 +395,114 @@
         </div>
         <div class="text-xs text-emerald-800 font-semibold mt-1"><i class="fa-solid fa-calendar-day ml-1"></i>${esc(r.visitDate || 'زيارة دورية مفتوحة')}</div>
         <div class="mt-2 flex flex-wrap gap-1">${(r.supervisors || []).map(s => `<span class="bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-[11px]"><b>${esc(s.name)}</b> <span class="text-emerald-700">(${esc(s.specialty)})</span>${s.warn ? ' <span class="text-amber-500" title="' + esc(s.warn) + '">⚠</span>' : ''}</span>`).join('') || '<span class="text-amber-600 text-[11px]">لم يُحدَّد فريق</span>'}</div>
-        <div class="grid grid-cols-2 gap-2 mt-3">
+        <div class="grid grid-cols-3 gap-2 mt-3">
           <button onclick="openTeamBuilder('${r.schoolId}')" class="bg-emerald-600 text-white text-xs font-bold rounded-xl py-2.5"><i class="fa-solid fa-people-group ml-1"></i>تحديد الفريق</button>
           <button onclick="viewSchoolScheduleModal('${r.schoolId}')" class="bg-slate-100 text-slate-700 text-xs font-bold rounded-xl py-2.5"><i class="fa-solid fa-calendar-check ml-1"></i>الحصص</button>
+          <button onclick="openWaReport('${r.schoolId}')" class="bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-bold rounded-xl py-2.5"><i class="fa-brands fa-whatsapp ml-1"></i>تقرير</button>
         </div>
       </div>`).join('') || '<div class="p-8 text-center text-slate-400 text-xs bg-white rounded-2xl border border-slate-200">لا يوجد جدول زيارات حالياً</div>';
+  };
+
+
+  // ---------- تقرير واتساب ----------
+  const WA_KEY = 'sup_wa_phone';
+  const NUM = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣'];
+  const fmtDate = v => {
+    const t = String(v || '').trim(); if (!t) return 'زيارة دورية مفتوحة';
+    const m = t.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+    if (!m) return t;
+    const d = new Date(+m[1], +m[2] - 1, +m[3]);
+    return ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'][d.getDay()] + ' ' + m[3] + '/' + m[2] + '/' + m[1];
+  };
+  function buildWaReport(opt) {
+    const rows = (typeof distributionResults !== 'undefined' ? distributionResults : []).filter(r => (opt.schoolId ? r.schoolId === opt.schoolId : true));
+    let list = rows.filter(r => opt.gender === 'ALL' || r.gender === opt.gender);
+    const scheduled = list.filter(r => r.supervisors && r.supervisors.length);
+    if (!opt.unscheduled) list = scheduled;
+    list = list.slice().sort((a, b) => (a.gender === b.gender ? 0 : a.gender === 'ذكور' ? -1 : 1) || String(a.visitDate || '9').localeCompare(String(b.visitDate || '9')) || COLL.compare(a.schoolName, b.schoolName));
+    const today = new Date().toLocaleDateString('ar', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+    const out = [];
+    out.push(opt.schoolId ? '*📋 تقرير زيارة مدرسة*' : '*📋 خطة الزيارات الإشرافية*');
+    out.push('دائرة الإشراف والتوجيه التربوي');
+    out.push('🗓 ' + today);
+    if (!opt.schoolId) out.push(`📌 المجدولة: ${scheduled.length} من ${(typeof schools !== 'undefined' ? schools : []).length} مدرسة`);
+    if (!list.length) { out.push('', 'لا توجد زيارات مجدولة ضمن هذا الاختيار.'); return out.join('\n'); }
+    let lastG = null, i = 0;
+    list.forEach(r => {
+      if (r.gender !== lastG && !opt.schoolId) { lastG = r.gender; i = 0; out.push('', r.gender === 'ذكور' ? '*— مدارس البنين —*' : '*— مدارس البنات —*'); }
+      i++;
+      out.push('', `${NUM[i - 1] || i + '.'} *${r.schoolName}*`);
+      out.push('📅 ' + fmtDate(r.visitDate));
+      const team = (r.supervisors || []).map(x => x.name + (x.specialty ? ' (' + x.specialty + ')' : '')).join('، ');
+      out.push('👥 ' + (team || 'لم يُحدَّد الفريق بعد'));
+      const warns = (r.supervisors || []).filter(x => x.warn).length;
+      if (warns) out.push('⚠️ يوجد تنبيه على الفريق، يُراجع قبل الزيارة');
+    });
+    out.push('', '_أُعدّ عبر منظومة الإشراف_');
+    return out.join('\n');
+  }
+  function ensureWaModal() {
+    if (document.getElementById('wa-modal')) return;
+    document.body.insertAdjacentHTML('beforeend', `
+    <div id="wa-modal" class="fixed inset-0 z-50 no-print" style="display:none">
+      <div class="absolute inset-0 bg-slate-900/50" data-wa="close"></div>
+      <div class="absolute bottom-0 inset-x-0 md:inset-x-auto md:left-1/2 md:-translate-x-1/2 md:bottom-auto md:top-10 md:w-[560px] bg-white rounded-t-3xl md:rounded-3xl p-4 space-y-3 max-h-[92vh] overflow-y-auto" style="padding-bottom:calc(16px + env(safe-area-inset-bottom))">
+        <div class="flex items-center justify-between">
+          <h3 class="text-base font-bold text-slate-900"><i class="fa-brands fa-whatsapp text-emerald-600 ml-1"></i>تقرير واتساب</h3>
+          <button data-wa="close" class="w-9 h-9 rounded-xl bg-slate-100 text-slate-600"><i class="fa-solid fa-xmark"></i></button>
+        </div>
+        <div class="grid grid-cols-2 gap-2">
+          <select id="wa-gender" class="text-sm border border-slate-200 rounded-xl px-3 py-2 bg-slate-50"><option value="ALL">كل المدارس</option><option value="ذكور">البنين</option><option value="إناث">البنات</option></select>
+          <label class="flex items-center gap-2 text-xs font-bold text-slate-600 bg-slate-50 border border-slate-200 rounded-xl px-3"><input type="checkbox" id="wa-unsch"> مع غير المجدولة</label>
+        </div>
+        <textarea id="wa-text" rows="12" class="w-full text-sm border border-slate-200 rounded-2xl p-3 bg-slate-50 leading-relaxed" style="-webkit-user-select:text;user-select:text"></textarea>
+        <input id="wa-phone" inputmode="tel" dir="ltr" placeholder="رقم المستلم بصيغة دولية (اختياري) مثل 963912345678" class="w-full text-sm border border-slate-200 rounded-xl px-3 py-2 bg-slate-50">
+        <div id="wa-note" class="text-[11px] text-amber-600 hidden"></div>
+        <div class="grid grid-cols-3 gap-2">
+          <button data-wa="send" class="col-span-3 bg-emerald-600 text-white text-sm font-bold rounded-2xl py-3"><i class="fa-brands fa-whatsapp ml-1"></i>إرسال عبر واتساب</button>
+          <button data-wa="share" class="bg-slate-100 text-slate-700 text-xs font-bold rounded-xl py-2.5"><i class="fa-solid fa-share-nodes ml-1"></i>مشاركة</button>
+          <button data-wa="copy" class="bg-slate-100 text-slate-700 text-xs font-bold rounded-xl py-2.5"><i class="fa-regular fa-copy ml-1"></i>نسخ</button>
+          <button data-wa="refresh" class="bg-slate-100 text-slate-700 text-xs font-bold rounded-xl py-2.5"><i class="fa-solid fa-rotate ml-1"></i>إعادة توليد</button>
+        </div>
+        <p class="text-[11px] text-slate-400">النص قابل للتعديل قبل الإرسال. لا تُضاف أرقام هواتف الموجهين إلى التقرير.</p>
+      </div>
+    </div>`);
+    const m = document.getElementById('wa-modal');
+    const regen = () => { m.dataset.fresh = '1'; document.getElementById('wa-text').value = buildWaReport({ gender: document.getElementById('wa-gender').value, unscheduled: document.getElementById('wa-unsch').checked, schoolId: m.dataset.school || '' }); checkLen(); };
+    const checkLen = () => {
+      const n = document.getElementById('wa-note'), len = encodeURIComponent(document.getElementById('wa-text').value).length;
+      n.classList.toggle('hidden', len < 5500);
+      n.textContent = 'التقرير طويل؛ قد لا يستقبله رابط واتساب كاملاً. استخدم «مشاركة» أو «نسخ» ثم الصقه في المحادثة.';
+    };
+    document.getElementById('wa-gender').addEventListener('change', regen);
+    document.getElementById('wa-unsch').addEventListener('change', regen);
+    document.getElementById('wa-text').addEventListener('input', checkLen);
+    document.getElementById('wa-phone').addEventListener('change', e => { try { localStorage.setItem(WA_KEY, e.target.value.replace(/\D/g, '')); } catch (x) { } });
+    m.addEventListener('click', async e => {
+      const b = e.target.closest('[data-wa]'); if (!b) return;
+      const act = b.dataset.wa, txt = document.getElementById('wa-text').value;
+      if (act === 'close') m.style.display = 'none';
+      else if (act === 'refresh') regen();
+      else if (act === 'send') {
+        const num = document.getElementById('wa-phone').value.replace(/\D/g, '');
+        window.open('https://wa.me/' + num + '?text=' + encodeURIComponent(txt), '_blank');
+      } else if (act === 'share') {
+        if (navigator.share) { try { await navigator.share({ text: txt }); } catch (x) { } } else showToast('المشاركة غير مدعومة هنا، استخدم النسخ', 'info');
+      } else if (act === 'copy') {
+        try { await navigator.clipboard.writeText(txt); showToast('تم نسخ التقرير'); }
+        catch (x) { const t = document.getElementById('wa-text'); t.select(); document.execCommand('copy'); showToast('تم نسخ التقرير'); }
+      }
+    });
+    m._regen = regen;
+  }
+  window.openWaReport = function (schoolId) {
+    ensureWaModal();
+    const m = document.getElementById('wa-modal');
+    m.dataset.school = schoolId || '';
+    document.getElementById('wa-gender').value = 'ALL';
+    document.getElementById('wa-unsch').checked = !!schoolId;
+    try { document.getElementById('wa-phone').value = localStorage.getItem(WA_KEY) || ''; } catch (x) { }
+    m._regen(); m.style.display = 'block';
   };
 
   // ---------- شريط التنقل السفلي للجوال ----------
@@ -417,6 +520,7 @@
         <div class="w-10 h-1.5 bg-slate-300 rounded-full mx-auto mb-2"></div>
         ${[['supervisors', 'fa-user-tie', 'كادر الموجهين'], ['schools', 'fa-mosque', 'سجل المدارس'], ['import', 'fa-cloud-arrow-down', 'تصدير ونسخ احتياطي']].map(([v, ic, l]) =>
           `<button data-nav="${v}" class="w-full flex items-center gap-3 bg-slate-50 rounded-2xl px-4 py-3.5 text-sm font-bold text-slate-700"><i class="fa-solid ${ic} text-emerald-600 w-5 text-center"></i>${l}</button>`).join('')}
+        <button data-nav="wa" class="w-full flex items-center gap-3 bg-slate-50 rounded-2xl px-4 py-3.5 text-sm font-bold text-slate-700"><i class="fa-brands fa-whatsapp text-emerald-600 w-5 text-center"></i>تقرير واتساب</button>
         <button data-nav="hero" class="w-full flex items-center gap-3 bg-slate-50 rounded-2xl px-4 py-3.5 text-sm font-bold text-slate-700"><i class="fa-solid fa-gear text-emerald-600 w-5 text-center"></i>إعدادات الجولة والجدولة التلقائية</button>
       </div>
     </div>`);
@@ -434,6 +538,7 @@
       const v = b.dataset.nav;
       if (v === 'more') sheetOpen(true);
       else if (v === 'close') sheetOpen(false);
+      else if (v === 'wa') { sheetOpen(false); openWaReport(); }
       else if (v === 'hero') { document.getElementById('app-hero').classList.toggle('mobile-show'); sheetOpen(false); window.scrollTo({ top: 0, behavior: 'smooth' }); }
       else { sheetOpen(false); v === 'team' ? openTeamBuilder() : switchView(v); }
     });
