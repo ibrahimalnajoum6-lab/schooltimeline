@@ -49,3 +49,23 @@ main input, main select { background: #fffdf7 !important; border-color: #e0d4b3 
   #bottom-nav [data-nav="team"] { width: 62px; height: 62px; margin: -30px auto 0; border-radius: 999px; padding: 0;
     background: linear-gradient(180deg, #f0d99a, var(--gold2)); color: var(--g2) !important; border: 4px solid var(--cream); box-shadow: 0 8px 18px rgba(0,0,0,.25); }
 }
+
+/* ===== إصلاح العرض على الجوال: منع تمدد الصفحة أفقياً ===== */
+html, body { max-width: 100%; overflow-x: hidden; }
+main, main > *, header > div { min-width: 0; max-width: 100%; }
+@media (max-width: 767px) {
+  /* عناصر flex/grid لا تتمدد بسبب محتواها الداخلي (جداول، شرائح، قوائم) */
+  #app-stats, #m-hero, #view-schedules, #view-distribution, #view-supervisors, #view-schools, #view-import,
+  #schedule-display-container, #distribution-cards, #filter-cards, #t-cards { min-width: 0; max-width: 100%; }
+  #app-stats > div, .m-slide { min-width: 0; }
+  /* قائمة اختيار المدرسة: تبقى داخل الشاشة مهما طال اسم المدرسة */
+  #schedule-school-selector, #view-schedules select { width: 100%; max-width: 100%; text-overflow: ellipsis; }
+  #view-schedules .flex.items-center.gap-2 { width: 100%; }
+  /* رأس بطاقة الجدول: يلتف النص بدل أن يدفع الصفحة */
+  #schedule-display-container > div:first-child { flex-wrap: wrap; gap: 8px; }
+  #schedule-display-container h4, #schedule-display-container p { overflow-wrap: anywhere; }
+  /* الجداول تتمرر داخل بطاقتها فقط */
+  #schedule-display-container .overflow-x-auto { max-width: 100%; -webkit-overflow-scrolling: touch; }
+  #schedule-display-container table { min-width: 560px; }
+  header .flex.items-center.gap-2 { flex-wrap: wrap; justify-content: flex-end; }
+}
