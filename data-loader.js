@@ -269,7 +269,7 @@
       <div class="bg-white p-4 rounded-2xl border border-slate-200 space-y-3">
         <h3 class="text-base font-bold text-slate-900">تكوين فريق الزيارة (تحدده أنت حسب المتاح في المدرسة)</h3>
         <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
-          ${field('المدرسة', `<select id="t-school" class="${inp}"></select>`)}
+          ${field('المدرسة', `<div class="relative mb-1.5"><i class="fa-solid fa-magnifying-glass absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs"></i><input id="t-sq" type="search" autocomplete="off" placeholder="ابحث عن مدرسة…" class="${inp} pr-8"></div><select id="t-school" class="${inp}"></select><div id="t-sqc" class="text-[11px] text-slate-400 mt-1"></div>`)}
           ${field('يوم الزيارة', `<select id="t-day" class="${inp}">${'<option value="">— اختر اليوم —</option>' + DAYS.slice(0, 5).map(d => `<option>${d}</option>`).join('')}</select>`)}
           ${field('تاريخ الزيارة (اختياري)', `<input type="date" id="t-date" class="${inp}">`)}
           ${field('عرض الموجهين', `<label class="flex items-center gap-2 text-xs pt-2"><input type="checkbox" id="t-all"> كل الموجهين (وليس نفس جنس المدرسة فقط)</label>`)}
@@ -295,6 +295,8 @@
       </div>
     </div>`);
     document.getElementById('t-school').addEventListener('change', () => loadTeam());
+    document.getElementById('t-sq').addEventListener('input', () => { if (fillSchools(document.getElementById('t-school').value)) loadTeam(); });
+    document.getElementById('t-sq').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); } });
     document.getElementById('t-date').addEventListener('change', () => { const d = dayOf(document.getElementById('t-date').value); if (DAYS.slice(0, 5).includes(d)) document.getElementById('t-day').value = d; renderTeam(); });
     document.getElementById('t-day').addEventListener('change', renderTeam);
     document.getElementById('t-all').addEventListener('change', renderTeam);
@@ -305,10 +307,20 @@
     }));
   }
   function curSchool() { return schools.find(s => s.id === document.getElementById('t-school').value); }
+  function fillSchools(keep) {
+    const sel = document.getElementById('t-school'), q = n(document.getElementById('t-sq').value), c = document.getElementById('t-sqc');
+    const list = schools.filter(s => !q || n(s.name).includes(q));
+    if (!list.length) { c.textContent = 'لا توجد مدرسة بهذا الاسم'; return false; }
+    sel.innerHTML = list.map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join('');
+    c.textContent = q ? `${list.length} من ${schools.length} مدرسة` : '';
+    const before = keep || '';
+    sel.value = list.some(s => s.id === before) ? before : list[0].id;
+    return sel.value !== before;
+  }
   window.openTeamBuilder = function (id) {
     const sel = document.getElementById('t-school');
-    sel.innerHTML = schools.map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join('');
-    if (id) sel.value = id;
+    document.getElementById('t-sq').value = '';
+    fillSchools(id || sel.value);
     switchView('team'); loadTeam();
   };
   function loadTeam() {
