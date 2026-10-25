@@ -3,8 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <meta name="theme-color" content="#0b3b2e">
-    <link rel="manifest" href="manifest.json?v=9">
+    <meta name="theme-color" content="#0f2f5c">
+    <link rel="manifest" href="manifest.json?v=10">
     <link rel="icon" href="icon-192.png">
     <link rel="apple-touch-icon" href="icon-192.png">
     <title>منظومة الإشراف والتوجيه التربوي للمدارس الشرعية</title>
@@ -27,14 +27,8 @@
                         sans: ['Cairo', 'sans-serif'],
                     },
                     colors: {
-                        emerald: {
-                            50: '#eef5ee',
-                            100: '#dcebe0',
-                            600: '#14573f',
-                            700: '#0f4a3a',
-                            800: '#0b3b2e',
-                            900: '#082d23',
-                        }
+                        emerald: { 50:'#eff6ff',100:'#dbeafe',200:'#bfdbfe',300:'#93c5fd',400:'#60a5fa',500:'#3b82f6',600:'#1d4f91',700:'#173f78',800:'#0f2f5c',900:'#0a2347',950:'#071a38' },
+                        teal:    { 50:'#eff6ff',100:'#dbeafe',200:'#bfdbfe',300:'#93c5fd',400:'#60a5fa',500:'#2f6fc0',600:'#1d4f91',700:'#173f78',800:'#0f2f5c',900:'#0a2347',950:'#071a38' }
                     }
                 }
             }
@@ -86,7 +80,7 @@
             body { background: white !important; }
         }
     </style>
-    <link rel="stylesheet" href="theme.css?v=9">
+    <link rel="stylesheet" href="theme.css?v=10">
 </head>
 <body class="text-slate-800 antialiased min-h-screen flex flex-col custom-scrollbar">
 
@@ -581,7 +575,7 @@
         <span id="toast-msg">تمت العملية بنجاح</span>
     </div>
 
-    <script src="config.js?v=9"></script>
+    <script src="config.js?v=10"></script>
     <script>
         const SHARIA_SPECIALTIES = [
             "القرآن الكريم وعلومه",
@@ -1767,13 +1761,13 @@
             }, 4000);
         }
     </script>
-    <script src="data-loader.js?v=9"></script>
+    <script src="data-loader.js?v=10"></script>
     <script>
         // تحديث فوري: التسجيل + فحص النسخة الجديدة + إعادة التحميل تلقائياً
         if ('serviceWorker' in navigator) {
             window.addEventListener('load', () => {
                 const hadController = !!navigator.serviceWorker.controller;
-                navigator.serviceWorker.register('sw.js?v=9', { updateViaCache: 'none' }).then(reg => {
+                navigator.serviceWorker.register('sw.js?v=10', { updateViaCache: 'none' }).then(reg => {
                     reg.update();
                     document.addEventListener('visibilitychange', () => { if (!document.hidden) reg.update(); });
                 }).catch(console.error);
