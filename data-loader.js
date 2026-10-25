@@ -415,7 +415,7 @@
       <div class="absolute inset-0 bg-slate-900/50" data-nav="close"></div>
       <div class="absolute bottom-0 inset-x-0 bg-white rounded-t-3xl p-4 space-y-2" style="padding-bottom:calc(16px + env(safe-area-inset-bottom))">
         <div class="w-10 h-1.5 bg-slate-300 rounded-full mx-auto mb-2"></div>
-        ${[['supervisors', 'fa-user-tie', 'كادر الموجهين'], ['schools', 'fa-mosque', 'سجل المدارس'], ['import', 'fa-file-import', 'استيراد وتصدير Excel']].map(([v, ic, l]) =>
+        ${[['supervisors', 'fa-user-tie', 'كادر الموجهين'], ['schools', 'fa-mosque', 'سجل المدارس'], ['import', 'fa-cloud-arrow-down', 'تصدير ونسخ احتياطي']].map(([v, ic, l]) =>
           `<button data-nav="${v}" class="w-full flex items-center gap-3 bg-slate-50 rounded-2xl px-4 py-3.5 text-sm font-bold text-slate-700"><i class="fa-solid ${ic} text-emerald-600 w-5 text-center"></i>${l}</button>`).join('')}
         <button data-nav="hero" class="w-full flex items-center gap-3 bg-slate-50 rounded-2xl px-4 py-3.5 text-sm font-bold text-slate-700"><i class="fa-solid fa-gear text-emerald-600 w-5 text-center"></i>إعدادات الجولة والجدولة التلقائية</button>
       </div>
