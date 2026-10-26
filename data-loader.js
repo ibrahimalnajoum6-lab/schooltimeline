@@ -484,10 +484,38 @@
     persistData(); renderAllViews();
   };
 
+
+  // ---------- حصص الموجه في مدرسة (يوم الزيارة / الأسبوع) ----------
+  const _mtCache = new Map();
+  window.supClassInfo = (sup, school, dateStr) => {
+    const k = sup.specialty || ''; if (!_mtCache.has(k)) _mtCache.set(k, subjMatch(k));
+    const mt = _mtCache.get(k), rows = (schedules[school.id] || []).filter(r => mt(r.subject));
+    const dn = /^\d{4}-\d{2}-\d{2}$/.test(dateStr || '') ? dayOf(dateStr) : (DAYS.includes(dateStr) ? dateStr : '');
+    return { week: rows.length, day: dn ? rows.filter(r => r.day === dn).length : rows.length, dn, days: [...new Set(rows.map(r => r.day))] };
+  };
+
+  // ---------- لوحة التنبيهات أعلى جدول الزيارات ----------
+  function renderDistAlerts() {
+    const anchor = document.getElementById('distribution-cards'); if (!anchor) return;
+    let box = document.getElementById('dist-alerts');
+    if (!box) { anchor.insertAdjacentHTML('beforebegin', '<div id="dist-alerts" class="space-y-2 no-print"></div>'); box = document.getElementById('dist-alerts'); }
+    let html = '';
+    try { buildZoneKm(); } catch (e) { }
+    const unk = (typeof classifySchool === 'function' ? schools.filter(sc => classifySchool(sc).unknown) : []);
+    if (unk.length) html += `<div class="bg-red-50 border border-red-300 text-red-900 rounded-xl p-3 text-xs space-y-2"><b>⚠ ${unk.length} مدرسة بلا مسافة معروفة — وُضعت مؤقتاً في «الريف القريب»</b><div class="text-red-800">أضف المسافة (كم) من تعديل المدرسة ثم أعد الجدولة، حتى تُوضع في اليوم الصحيح (50 كم فأكثر = ريف بعيد).</div><div class="flex flex-wrap gap-1.5">${unk.slice(0, 30).map(sc => `<button onclick="openSchoolModal('${sc.id}')" class="bg-white border border-red-300 rounded-lg px-2 py-1 font-bold">${esc(sc.name)} ✎</button>`).join('')}</div></div>`;
+    const bad = distributionResults.map(r => ({ r, w: (r.supervisors || []).filter(x => x.warn) })).filter(x => x.w.length);
+    if (bad.length) {
+      const total = bad.reduce((t, x) => t + x.w.length, 0);
+      html += `<div class="bg-amber-50 border border-amber-300 text-amber-900 rounded-xl p-3 text-xs space-y-1.5"><b>⚠ ${total} موجه في ${bad.length} مدرسة بلا حصص من اختصاصهم يوم الزيارة</b>${bad.slice(0, 40).map(x => `<div class="flex flex-wrap items-center gap-x-2"><button onclick="openTeamBuilder('${x.r.schoolId}')" class="font-bold underline">${esc(x.r.schoolName)}</button><span>${x.w.map(m => esc(m.name) + ': ' + esc(m.warn)).join(' • ')}</span></div>`).join('')}${bad.length > 40 ? `<div>… و${bad.length - 40} مدرسة أخرى</div>` : ''}</div>`;
+    }
+    box.innerHTML = html;
+  }
+
   // ---------- بطاقات جدول الزيارات للجوال ----------
   const _renderDist = window.renderDistributionTable;
   window.renderDistributionTable = function () {
     _renderDist();
+    renderDistAlerts();
     const box = document.getElementById('distribution-cards'); if (!box) return;
     const g = document.getElementById('filter-dist-gender').value, q = n(document.getElementById('search-dist-school').value);
     const rows = distributionResults.filter(r => (g === 'ALL' || r.gender === g) && (!q || n(r.schoolName + ' ' + r.zone).includes(q)));
