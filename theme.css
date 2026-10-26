@@ -145,3 +145,17 @@ input, textarea, select { -webkit-user-select: text; user-select: text; }
   #t-cards > label { padding: 14px !important; }
   #t-cards > label .font-bold { font-size: 15px; color: var(--g2); }
 }
+
+/* ===== شريط حفظ الفريق ===== */
+#t-bar { display: flex; align-items: center; gap: 6px; padding: 8px 10px; }
+#t-bar .t-bar-count { display: flex; align-items: baseline; gap: 4px; background: #fff; border: 1px solid #6ee7b7; border-radius: 12px; padding: 6px 10px; color: #064e3b; font-size: 11px; font-weight: 700; white-space: nowrap; }
+#t-bar .t-bar-count b { font-size: 18px; line-height: 1; }
+#t-bar button { display: flex; align-items: center; justify-content: center; gap: 5px; border-radius: 12px; font-weight: 800; font-size: 12px; height: 42px; padding: 0 10px; white-space: nowrap; }
+#t-bar .t-b-cancel { background: #fff; border: 1px solid #cbd5e1; color: #475569; }
+#t-bar .t-b-share { background: #fff; border: 1px solid #34d399; color: #047857; }
+#t-bar .t-b-save { flex: 1; background: #059669; color: #fff; font-size: 14px; }
+@media (max-width: 767px) {
+  /* ثابت فوق شريط التنقل (ارتفاعه 68 + هامش 12 + بروز الزر الذهبي) فلا يغطيه شيء */
+  #t-bar { position: fixed !important; left: 12px; right: 12px; bottom: calc(124px + env(safe-area-inset-bottom)); z-index: 45; }
+  #view-team { padding-bottom: 190px; }
+}
