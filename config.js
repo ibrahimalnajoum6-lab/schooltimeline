@@ -6,6 +6,14 @@ window.APP_CONFIG = {
   SCHEDULE_CSV:    "https://docs.google.com/spreadsheets/d/e/2PACX-1vTusK9IqO9yjxcjJ8ooHoYJYyIVjxN9Oc0CE2dDNkzy2TmKvCUiH8rr9gUE_dB-tN2xcbsjZ-vnpB_u/pub?gid=1218088545&single=true&output=csv",   // ورقة "قالب جدول الحصص"
   SUPERVISORS_CSV: "https://docs.google.com/spreadsheets/d/e/2PACX-1vQ1JyPenkA-moCb3jcZ3Fbdk9nhZqvpm_4tEPkYmBRLLRl8ZF3IXXL6GVN7vTPkPxbXYudXoYn5KtPz/pub?gid=1778888823&single=true&output=csv",   // ورقة الموجهين (الصف الأول عناوين)
   // لمدرسة لا يدل اسمها على الجنس (بنين/بنات) اكتب جنسها هنا: 'ذكور' أو 'إناث'
+  // المنطقة والمسافة (كم) عن حلب لكل مدرسة. الأفضل وضعهما كعمودين في ورقة الجدول: «المنطقة» و«المسافة»
+  // (يكفي كتابتهما في صف واحد من صفوف المدرسة). أو اكتبهما هنا:
+  //   الأحد = ريف بعيد (50 كم فأكثر) | الإثنين = مدينة حلب (اكتب المنطقة: «مدينة حلب») | الثلاثاء-الخميس = ريف قريب (أقل من 50)
+  // مدرسة البنين ومدرسة البنات في نفس البلدة تُكتب لهما نفس المنطقة (مثلاً «منبج») فيزورهما الفريقان في اليوم نفسه.
+  SCHOOL_INFO: {
+    // "ثانوية منبج الشرعية للبنين": { zone: "منبج", km: 90 },
+    // "ثانوية منبج الشرعية للبنات": { zone: "منبج", km: 90 },
+  },
   SCHOOL_GENDER_OVERRIDES: {
     // "الخسروية": "إناث",
     // "الثانوية الشرعية النعمانية": "إناث",
