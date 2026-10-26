@@ -304,6 +304,37 @@
   const dayOf = d => d ? DAYS[new Date(d + 'T00:00:00').getDay()] || '' : '';
   let TEAM = new Set();
 
+
+  // ---------- شريط بحث المدرسة (الفلترة + جدول الحصص) ----------
+  function addSelectSearch(selId, placeholder) {
+    const sel = document.getElementById(selId); if (!sel || sel.dataset.hasSearch) return;
+    sel.dataset.hasSearch = '1';
+    const wrap = document.createElement('div'); wrap.className = 'relative mb-1.5 w-full';
+    wrap.innerHTML = `<i class="fa-solid fa-magnifying-glass absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs"></i><input type="search" autocomplete="off" placeholder="${placeholder}" class="${inp} pr-8"><div class="text-[11px] text-slate-400 mt-1" data-cnt></div>`;
+    const col = document.createElement('div'); col.className = 'flex-1 min-w-0';
+    sel.parentNode.insertBefore(col, sel); col.appendChild(wrap); col.appendChild(sel);
+    const box = wrap.querySelector('input'), cnt = wrap.querySelector('[data-cnt]');
+    let master = [], busy = false;
+    const snap = () => { master = [...sel.options].map(o => ({ v: o.value, t: o.textContent })); };
+    snap();
+    new MutationObserver(() => { if (!busy) { snap(); if (box.value) run(false); } }).observe(sel, { childList: true });
+    function run(fire) {
+      const q = n(box.value), keep = sel.value;
+      const list = master.filter(o => o.v === '' || !q || n(o.t).includes(q));
+      const real = list.filter(o => o.v !== '').length;
+      if (q && !real) { cnt.textContent = 'لا توجد مدرسة بهذا الاسم'; return; }
+      busy = true;
+      sel.innerHTML = list.map(o => `<option value="${esc(o.v)}">${esc(o.t)}</option>`).join('');
+      busy = false;
+      cnt.textContent = q ? `${real} من ${master.filter(o => o.v !== '').length} مدرسة` : '';
+      const still = list.some(o => o.v === keep);
+      sel.value = still ? keep : (q ? (list.find(o => o.v !== '') || list[0]).v : (list[0] ? list[0].v : ''));
+      if (fire && sel.value !== keep) sel.dispatchEvent(new Event('change', { bubbles: true }));
+    }
+    box.addEventListener('input', () => run(true));
+    box.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); } });
+  }
+
   function injectTeamTab() {
     document.getElementById('tab-btn-filter').insertAdjacentHTML('beforebegin',
       `<button onclick="openTeamBuilder()" id="tab-btn-team" class="px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold text-slate-600 hover:bg-slate-100 transition flex items-center gap-2"><i class="fa-solid fa-people-group"></i><span>تكوين فريق الزيارة</span></button>`);
@@ -331,10 +362,11 @@
         <table class="w-full text-xs text-right"><thead class="bg-slate-50 text-slate-600"><tr><th class="p-3 w-10"></th><th class="p-3">الموجه</th><th class="p-3">الاختصاص</th><th class="p-3">حصصه في المدرسة (أسبوعياً)</th><th class="p-3">حصصه يوم الزيارة</th><th class="p-3">الحالة</th></tr></thead>
         <tbody id="t-body" class="divide-y divide-slate-100"></tbody></table>
       </div>
-      <div id="t-bar" class="sticky bottom-28 md:bottom-2 z-30 shadow-lg flex flex-wrap items-center justify-between gap-2 bg-emerald-50 border border-emerald-300 rounded-2xl px-4 py-3">
-        <span class="text-xs font-bold text-emerald-900">عدد أعضاء الفريق: <span id="t-count">0</span></span>
-        <div class="flex flex-wrap gap-2"><button onclick="openTeamShare()" class="text-xs bg-white border border-emerald-400 text-emerald-700 px-3 py-2.5 rounded-xl font-bold"><i class="fa-brands fa-whatsapp ml-1"></i>إرسال وتصدير</button><button onclick="clearTeam()" class="text-xs bg-white border border-slate-300 px-3 py-2.5 rounded-xl font-bold">إلغاء الفريق</button>
-        <button onclick="saveTeam()" class="text-sm bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2.5 rounded-xl font-bold">حفظ الفريق</button></div>
+      <div id="t-bar" class="md:sticky md:bottom-2 z-30 shadow-lg bg-emerald-50 border border-emerald-300 rounded-2xl">
+        <div class="t-bar-count"><b id="t-count">0</b><span>أعضاء</span></div>
+        <button onclick="clearTeam()" class="t-b-cancel"><i class="fa-solid fa-xmark"></i><span>إلغاء</span></button>
+        <button onclick="openTeamShare()" class="t-b-share"><i class="fa-brands fa-whatsapp"></i><span>إرسال</span></button>
+        <button onclick="saveTeam()" class="t-b-save"><i class="fa-solid fa-floppy-disk"></i><span>حفظ الفريق</span></button>
       </div>
     </div>`);
     document.getElementById('t-school').addEventListener('change', () => loadTeam());
@@ -908,7 +940,7 @@
 
   // ---------- الإقلاع ----------
   window.addEventListener('DOMContentLoaded', async () => {
-    injectTab(); injectTeamTab(); injectBottomNav(); buildMobileHome(); injectMobileTables();
+    injectTab(); injectTeamTab(); addSelectSearch('f-school', 'ابحث عن مدرسة…'); addSelectSearch('schedule-school-selector', 'ابحث عن مدرسة…'); injectBottomNav(); buildMobileHome(); injectMobileTables();
     if (!CFG.SCHEDULE_CSV || !CFG.SUPERVISORS_CSV) return;
     window.matchMedia('(max-width: 767px)').addEventListener('change', () => { try { renderFilter(); } catch (e) { } });
     // 1) عرض آخر بيانات محفوظة فوراً  2) جلب الجديد في الخلفية وتحديث الشاشة إن تغيّر
