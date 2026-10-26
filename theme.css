@@ -11,10 +11,6 @@ main input, main select { background: #fbfdff !important; border-color: #cdd9ec 
 
 @media (max-width: 767px) {
   body { padding-bottom: calc(104px + env(safe-area-inset-bottom)) !important; }
-  header button { background: rgba(255,255,255,.1) !important; border: 1px solid rgba(226,196,126,.4) !important; border-radius: 14px !important; color: var(--gold) !important; }
-  header button i { color: var(--gold) !important; }
-  header .w-11 { background: var(--card) !important; }
-  header .w-11 i { color: var(--g1) !important; }
   #toast { margin-bottom: 100px !important; }
 
   /* الإحصائيات: شريط أفقي قابل للسحب */
