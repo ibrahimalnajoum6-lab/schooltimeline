@@ -1,930 +1,1802 @@
-// تحميل البيانات من Google Sheets + تبويب فلترة برنامج الدوام
-(function () {
-  const CFG = window.APP_CONFIG || {};
-  const DAYS = ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'السبت'];
-  const STAGES = ['السابع', 'الثامن', 'التاسع', 'العاشر', 'الحادي عشر', 'البكالوريا'];
-  let FLAT = [], FILTERED = [], LIMIT = 300;
+<!DOCTYPE html>
+<html lang="ar" dir="rtl">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta name="theme-color" content="#0f2f5c">
+    <link rel="manifest" href="manifest.json?v=10">
+    <link rel="icon" href="icon-192.png">
+    <link rel="apple-touch-icon" href="icon-192.png">
+    <title>منظومة الإشراف والتوجيه التربوي للمدارس الشرعية</title>
+    <!-- Tailwind CSS CDN -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <!-- SheetJS (xlsx) for importing/exporting Excel files -->
+    <script defer src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
+    <!-- Google Fonts Cairo -->
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com">
+    <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@300;400;500;600;700;800&display=swap" rel="stylesheet">
+    <!-- FontAwesome 6 CDN -->
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css">
 
-  const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
-  const n = s => String(s ?? '').trim().replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي').replace(/\s+/g, ' ');
-  const bare = s => n(s).replace(/(^|\s)ال/g, '$1');
-  const ord = t => /اول/.test(t) ? 1 : /ثاني/.test(t) ? 2 : /ثالث/.test(t) ? 3 : /رابع/.test(t) ? 4 : /خامس/.test(t) ? 5 : /سادس/.test(t) ? 6 : /سابع/.test(t) ? 7 : 0;
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    fontFamily: {
+                        sans: ['Cairo', 'sans-serif'],
+                    },
+                    colors: {
+                        emerald: { 50:'#eff6ff',100:'#dbeafe',200:'#bfdbfe',300:'#93c5fd',400:'#60a5fa',500:'#3b82f6',600:'#1d4f91',700:'#173f78',800:'#0f2f5c',900:'#0a2347',950:'#071a38' },
+                        teal:    { 50:'#eff6ff',100:'#dbeafe',200:'#bfdbfe',300:'#93c5fd',400:'#60a5fa',500:'#2f6fc0',600:'#1d4f91',700:'#173f78',800:'#0f2f5c',900:'#0a2347',950:'#071a38' }
+                    }
+                }
+            }
+        }
+    </script>
+    <style>
+        body {
+            font-family: 'Cairo', sans-serif;
+            background-color: #f8fafc;
+        }
+        .custom-scrollbar::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        .custom-scrollbar::-webkit-scrollbar-track {
+            background: #f1f5f9;
+        }
+        .custom-scrollbar::-webkit-scrollbar-thumb {
+            background: #cbd5e1;
+            border-radius: 9999px;
+        }
 
-  function normDay(v) {
-    const t = n(v);
-    return /احد/.test(t) ? DAYS[0] : /اثنين/.test(t) ? DAYS[1] : /ثلاثاء/.test(t) ? DAYS[2] :
-      /اربعاء/.test(t) ? DAYS[3] : /خميس/.test(t) ? DAYS[4] : /سبت/.test(t) ? DAYS[5] : String(v || '').trim();
-  }
-  function normPeriod(v) {
-    const m = String(v ?? '').match(/\d+/);
-    return m ? +m[0] : ord(n(v));
-  }
-  function normGrade(gradeRaw, sectionRaw) {
-    const g = bare(gradeRaw), sRaw = String(sectionRaw ?? '').trim();
-    let stage = '';
-    if (/^\d+$/.test(g)) stage = { 7: STAGES[0], 8: STAGES[1], 9: STAGES[2], 10: STAGES[3], 11: STAGES[4], 12: STAGES[5] }[+g] || '';
-    else if (/بك.{0,2}ور|ثاني عشر|ثالث ثانوي/.test(g)) stage = STAGES[5];
-    else if (/حادي عشر|ثاني ثانوي/.test(g)) stage = STAGES[4];
-    else if (/عاشر|اول ثانوي/.test(g)) stage = STAGES[3];
-    else if (/تاسع|ثالث اعدادي/.test(g)) stage = STAGES[2];
-    else if (/ثامن|ثاني اعدادي/.test(g)) stage = STAGES[1];
-    else if (/سابع|اول اعدادي/.test(g)) stage = STAGES[0];
-    const all = g + ' ' + bare(sRaw);
-    const track = /ادبي|\sد$/.test(all) ? 'أدبي' : /علمي|\sع$/.test(all) ? 'علمي' : '';
-    let sec = 0;
-    if (/^\d+$/.test(sRaw) && +sRaw > 0) sec = +sRaw;
-    else if (!/وحيد|ادبي|علمي/.test(bare(sRaw))) sec = ord(bare(sRaw));
-    if (!sec && stage && !/^\d+$/.test(g)) { const m = g.match(/(\d)\s*$/); if (m) sec = +m[1]; else if (/شعبه/.test(g)) sec = ord(g); }
-    const label = stage ? [stage, track, sec ? 'شعبة ' + sec : ''].filter(Boolean).join(' ') : (String(gradeRaw || '').trim() || String(sectionRaw || '').trim() || '—');
-    return { stage, label, sec, track };
-  }
+        @media (max-width: 767px) {
+            body { padding-bottom: calc(72px + env(safe-area-inset-bottom)); -webkit-tap-highlight-color: transparent; }
+            input, select, textarea { font-size: 16px !important; min-height: 44px; }
+            input[type=checkbox] { min-height: 0; }
+            header .h-18 { height: auto; }
+            header h1 { font-size: 15px; }
+            header p, header h1 + span { display: none !important; }
+            header button span.m-full { display: none !important; }
+            header button { min-width: 40px; min-height: 40px; }
+            main { padding-top: 12px; padding-bottom: 12px; gap: 12px; }
+            #app-tabs, #app-tabs + * { }
+            #app-tabs { display: none !important; }
+            #app-hero { display: none; }
+            #app-hero.mobile-show { display: block; }
+            #app-stats { gap: 8px; }
+            #app-stats > div { padding: 10px; gap: 8px; border-radius: 14px; }
+            #app-stats > div > div:first-child { width: 34px; height: 34px; font-size: 15px; }
+            #app-stats .text-xl { font-size: 18px; line-height: 1.2; }
+            #app-stats .text-xl .text-xs { display: none; }
+            #app-stats p.text-\[11px\] { font-size: 10.5px; }
+            #view-distribution select, #view-distribution input[type=text] { width: 100%; }
+            #toast { margin-bottom: 76px; }
+        }
+        @media print {
+            .no-print { display: none !important; }
+            .print-only { display: block !important; }
+            body { background: white !important; }
+        }
+    </style>
+    <link rel="stylesheet" href="theme.css?v=12">
+</head>
+<body class="text-slate-800 antialiased min-h-screen flex flex-col custom-scrollbar">
 
-  // مفاتيح سريعة: مقارن عربي واحد بدل localeCompare (أبطأ بعشرات المرات)
-  const COLL = new Intl.Collator('ar');
-  const IS_MOB = () => window.matchMedia('(max-width: 767px)').matches;
+    <!-- شريط الرأس والتحكم العلوي -->
+    <header class="bg-white border-b border-slate-200 sticky top-0 z-40 shadow-xs no-print">
+        <div class="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+            <div class="m-hdr flex items-center justify-between h-18 py-2">
+                
+                <div class="m-hdr-brand flex items-center gap-3">
+                    <div class="w-11 h-11 rounded-2xl bg-gradient-to-tr from-emerald-700 to-teal-500 text-white flex items-center justify-center shadow-md shadow-emerald-700/20">
+                        <i class="fa-solid fa-mosque text-xl"></i>
+                    </div>
+                    <div>
+                        <div class="flex items-center gap-2">
+                            <h1 class="text-base sm:text-lg font-bold text-slate-900 leading-tight">منظومة الإشراف التربوي للمدارس الشرعية</h1>
+                            <span class="bg-emerald-100 text-emerald-800 text-[10px] font-bold px-2 py-0.5 rounded-full border border-emerald-300">نظام الإشراف العام الشامل</span>
+                        </div>
+                        <p class="text-xs text-slate-500">الموجهون مسؤولون عن كافة مدارس جنسهم دون تخصيص مدرسة حصرية لموجه بعينه</p>
+                    </div>
+                </div>
 
-  // محلل CSV خفيف (بديل عن SheetJS الثقيل على الجوال)
-  function parseCSV(t) {
-    if (t.charCodeAt(0) === 0xFEFF) t = t.slice(1);
-    const rows = []; let row = [], f = '', q = false, i = 0; const L = t.length;
-    while (i < L) {
-      const c = t[i];
-      if (q) {
-        if (c === '"') { if (t[i + 1] === '"') { f += '"'; i += 2; continue; } q = false; i++; continue; }
-        f += c; i++; continue;
-      }
-      if (c === '"') { q = true; i++; }
-      else if (c === ',') { row.push(f); f = ''; i++; }
-      else if (c === '\n' || c === '\r') { if (c === '\r' && t[i + 1] === '\n') i++; row.push(f); f = ''; rows.push(row); row = []; i++; }
-      else { f += c; i++; }
-    }
-    if (f !== '' || row.length) { row.push(f); rows.push(row); }
-    return rows;
-  }
-  function csvToObjects(text, label) {
-    const all = parseCSV(text).filter(r => r.some(x => x !== ''));
-    if (all.length < 2) throw new Error(label + ' — الورقة فارغة');
-    const seen = {};
-    const head = all[0].map(h => {
-      let k = String(h).replace(/[\u200B-\u200D\uFEFF]/g, '').trim() || 'عمود';
-      if (seen[k]) k = k + '_' + (seen[k]++); else seen[k] = 1;
-      return k;
-    });
-    const out = new Array(all.length - 1);
-    for (let r = 1; r < all.length; r++) {
-      const o = {}, row = all[r];
-      for (let c = 0; c < head.length; c++) o[head[c]] = row[c] === undefined ? '' : row[c].trim();
-      out[r - 1] = o;
-    }
-    return out;
-  }
+                <div class="m-hdr-actions flex items-center gap-2">
+                    <button onclick="runIntelligentDistribution()" class="inline-flex items-center gap-2 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-700 hover:to-teal-700 text-white px-4 py-2 rounded-xl text-xs sm:text-sm font-bold shadow-md shadow-emerald-600/20 transition active:scale-95">
+                        <i class="fa-solid fa-calendar-check"></i>
+                        <span class="m-full">جدولة الزيارات الدورية</span><span class="m-lbl">جدولة</span>
+                    </button>
+                    
+                    <button onclick="exportComprehensiveExcel()" class="inline-flex items-center gap-2 bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 text-emerald-800 px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold transition">
+                        <i class="fa-solid fa-file-excel text-emerald-600 text-base"></i>
+                        <span class="hidden md:inline m-full">تصدير الخطة الشاملة (Excel)</span><span class="m-lbl">إكسل</span>
+                    </button>
 
-  async function fetchText(url, label) {
-    let text;
-    try {
-      const res = await fetch(url, { cache: 'no-store' });
-      if (!res.ok) throw new Error('HTTP ' + res.status);
-      text = await res.text();
-    } catch (e) { throw new Error(label + ' — فشل الاتصال بالرابط (' + e.message + ')'); }
-    if (/^\s*<(!doctype|html)/i.test(text)) throw new Error(label + ' — الرابط يعيد صفحة ويب لا CSV (غير منشور أو ليس رابط النشر على الويب)');
-    return text;
-  }
+                    <button onclick="openWaReport()" class="inline-flex items-center gap-2 bg-emerald-50 border border-emerald-200 hover:bg-emerald-100 text-emerald-800 px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold transition" title="تقرير واتساب">
+                        <i class="fa-brands fa-whatsapp text-emerald-600 text-base"></i>
+                        <span class="hidden md:inline m-full">تقرير واتساب</span><span class="m-lbl">واتساب</span>
+                    </button>
 
-  // ---- كاش محلي: يعرض آخر بيانات فوراً ثم يحدّثها في الخلفية ----
-  const CK = 'sup_app_data_v1';
-  const readCache = () => { try { const j = JSON.parse(localStorage.getItem(CK) || 'null'); return j && j.sup && j.sch && j.u === CFG.SUPERVISORS_CSV + '|' + CFG.SCHEDULE_CSV ? j : null; } catch (e) { return null; } };
-  const saveCache = d => { try { localStorage.setItem(CK, JSON.stringify({ sup: d.sup, sch: d.sch, u: CFG.SUPERVISORS_CSV + '|' + CFG.SCHEDULE_CSV })); } catch (e) { /* الكاش اختياري */ } };
-  async function fetchBoth() {
-    const res = await Promise.allSettled([fetchText(CFG.SUPERVISORS_CSV, 'ورقة الموجهين'), fetchText(CFG.SCHEDULE_CSV, 'ورقة الجدول')]);
-    const errs = res.filter(r => r.status === 'rejected').map(r => r.reason.message);
-    if (errs.length) throw new Error(errs.join(' | '));
-    return { sup: res[0].value, sch: res[1].value };
-  }
+                    <button onclick="window.print()" class="inline-flex items-center gap-2 bg-slate-100 hover:bg-slate-200 text-slate-700 px-3 py-2 rounded-xl text-xs sm:text-sm font-semibold transition">
+                        <i class="fa-solid fa-print text-indigo-600"></i>
+                        <span class="hidden md:inline m-full">طباعة</span><span class="m-lbl">طباعة</span>
+                    </button>
 
-  function buildData(d) {
-    const supRows = csvToObjects(d.sup, 'ورقة الموجهين'), schRows = csvToObjects(d.sch, 'ورقة الجدول');
-    supervisors = supRows.filter(r => r['اسم الموجه']).map((r, i) => ({
-      id: 'sup-' + i, name: String(r['اسم الموجه']).trim(),
-      gender: /أنث|انث/.test(String(r['الجنس'])) ? 'أنثى' : 'ذكر',
-      specialty: String(r['التخصص'] || '').trim(), phone: String(r['الهاتف'] || '-').trim()
-    }));
-    if (!schRows[0] || !('المدرسة' in schRows[0])) throw new Error('ورقة الجدول: لا يوجد عمود «المدرسة» (الأعمدة الموجودة: ' + Object.keys(schRows[0] || {}).join('، ') + ')');
-    if (!supRows[0] || !('اسم الموجه' in supRows[0])) throw new Error('ورقة الموجهين: لا يوجد عمود «اسم الموجه» (الأعمدة الموجودة: ' + Object.keys(supRows[0] || {}).join('، ') + ')');
-    const names = [...new Set(schRows.map(r => String(r['المدرسة'] || '').trim()).filter(Boolean))].sort(COLL.compare);
-    const idOf = {}; schools = []; schedules = []; schedules = {}; FLAT = [];
-    // المنطقة والمسافة (كم) من أعمدة اختيارية في ورقة الجدول: «المنطقة» (أو «البلدة») و«المسافة» (أو «المسافة (كم)»)
-    // أو من SCHOOL_INFO في config.js. يكفي ذكرها في أي صف من صفوف المدرسة.
-    const keyOf = (row, re) => Object.keys(row).find(k => re.test(String(k).trim()));
-    const info = {};
-    schRows.forEach(r => {
-      const nm = String(r['المدرسة'] || '').trim(); if (!nm) return;
-      const kz = keyOf(r, /^(المنطقة|البلدة|المنطقة الجغرافية)$/), kk = keyOf(r, /^المسافة/);
-      const o = info[nm] || (info[nm] = {});
-      if (kz && !o.zone && String(r[kz]).trim()) o.zone = String(r[kz]).trim();
-      if (kk && (o.km === undefined || o.km === '') && String(r[kk]).trim()) o.km = String(r[kk]).trim();
-    });
-    Object.entries(CFG.SCHOOL_INFO || {}).forEach(([nm, v]) => { info[nm] = Object.assign(info[nm] || {}, v); });
-    names.forEach((nm, i) => {
-      const ov = (CFG.SCHOOL_GENDER_OVERRIDES || {})[nm];
-      idOf[nm] = 'sch-' + i;
-      schools.push({ id: 'sch-' + i, name: nm, gender: ov || (/بنات|اناث|إناث/.test(nm) ? 'إناث' : 'ذكور'),
-        stage: 'مشترك (7 - بكالوريا)', sections: 0, zone: (info[nm] || {}).zone || '', km: (info[nm] || {}).km ?? '', targetSpecialty: 'الفقه وأصوله' });
-      schedules['sch-' + i] = [];
-    });
-    schRows.forEach(r => {
-      const nm = String(r['المدرسة'] || '').trim(); if (!nm) return;
-      const { stage, label, sec, track } = normGrade(r['الصف'], r['الشعبة']);
-      const row = { grade: label, stage, sec, track, day: normDay(r['اليوم']), period: normPeriod(r['الحصة']),
-        subject: String(r['المادة'] || '').trim(), teacher: String(r['اسم المدرس'] || '').trim() };
-      schedules[idOf[nm]].push(row);
-      FLAT.push({ school: nm, ...row, _k: n(nm + ' ' + row.day + ' ' + label + ' ' + row.subject + ' ' + row.teacher), _s: n(row.subject), _t: n(row.teacher) });
-    });
-    schools.forEach(s => { s.sections = new Set(schedules[s.id].map(x => x.grade)).size; });
-    distributionResults = distributionResults.filter(d => idOf[d.schoolName] === d.schoolId);
-    window.SHEETS_MODE = true;
-    // الترتيب مرة واحدة هنا بدل كل عملية فلترة
-    FLAT.sort((a, b) => COLL.compare(a.school, b.school) || DAYS.indexOf(a.day) - DAYS.indexOf(b.day) || a.period - b.period);
-    buildFilterOptions(); applyFilters();
-  }
-  window.loadFromSheets = async function () { const d = await fetchBoth(); buildData(d); saveCache(d); };
-
-  // ---------- تبويب الفلترة ----------
-  const inp = 'w-full text-xs border border-slate-300 rounded-xl px-3 py-2 bg-slate-50';
-  const field = (l, el) => `<div><label class="block text-[11px] font-bold text-slate-600 mb-1">${l}</label>${el}</div>`;
-  function injectTab() {
-    document.getElementById('tab-btn-import').insertAdjacentHTML('beforebegin',
-      `<button onclick="switchView('filter')" id="tab-btn-filter" class="px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold text-slate-600 hover:bg-slate-100 transition flex items-center gap-2"><i class="fa-solid fa-filter"></i><span>فلترة برنامج الدوام</span></button>`);
-    document.getElementById('view-schedules').insertAdjacentHTML('afterend', `
-    <div id="view-filter" class="hidden space-y-4">
-      <div class="bg-white p-4 rounded-2xl border border-slate-200 space-y-3">
-        <div class="flex flex-wrap items-center justify-between gap-2">
-          <h3 class="text-base font-bold text-slate-900">فلترة برنامج الدوام الموحد</h3>
-          <div class="flex gap-2">
-            <button onclick="resetFilters()" class="text-xs bg-slate-100 hover:bg-slate-200 px-3 py-2 rounded-xl font-bold">مسح الفلاتر</button>
-            <button onclick="exportFiltered()" class="text-xs bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-2 rounded-xl font-bold"><i class="fa-solid fa-file-excel ml-1"></i>تصدير النتائج</button>
-          </div>
-        </div>
-        <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
-          ${field('المدرسة', `<select id="f-school" class="${inp}"></select>`)}
-          ${field('اليوم', `<select id="f-day" class="${inp}"></select>`)}
-          ${field('الحصة', `<select id="f-period" class="${inp}"></select>`)}
-          ${field('الصف', `<select id="f-stage" class="${inp}"></select>`)}
-          ${field('الشعبة / الفرع', `<select id="f-section" class="${inp}"></select>`)}
-          ${field('المادة', `<input id="f-subject" list="dl-subject" placeholder="ابحث..." class="${inp}"><datalist id="dl-subject"></datalist>`)}
-          ${field('المدرس', `<input id="f-teacher" list="dl-teacher" placeholder="ابحث..." class="${inp}"><datalist id="dl-teacher"></datalist>`)}
-          ${field('بحث نصي', `<input id="f-text" placeholder="أي كلمة..." class="${inp}">`)}
-        </div>
-        <label class="inline-flex items-center gap-2 text-xs text-slate-600"><input type="checkbox" id="f-noteacher"> الحصص التي بلا اسم مدرس فقط</label>
-      </div>
-      <div id="filter-summary" class="text-xs font-bold text-emerald-800 bg-emerald-50 border border-emerald-200 rounded-xl px-4 py-2"></div>
-      <div id="filter-cards" class="md:hidden space-y-2"></div>
-      <div class="hidden md:block bg-white rounded-2xl border border-slate-200 overflow-x-auto custom-scrollbar">
-        <table class="w-full text-xs text-right">
-          <thead class="bg-slate-50 text-slate-600"><tr><th class="p-3">المدرسة</th><th class="p-3">اليوم</th><th class="p-3">الحصة</th><th class="p-3">الصف</th><th class="p-3">المادة</th><th class="p-3">المدرس</th></tr></thead>
-          <tbody id="filter-body" class="divide-y divide-slate-100"></tbody>
-        </table>
-      </div>
-      <div class="text-center"><button id="filter-more" onclick="LIMIT_MORE()" class="hidden text-xs bg-slate-800 text-white px-4 py-2 rounded-xl font-bold">عرض المزيد</button></div>
-    </div>`);
-    const grid = document.querySelector('#view-filter .grid'), kids = [...grid.children];
-    [0, 5].forEach(i => kids[i].classList.add('col-span-2', 'md:col-span-1'));
-    [6, 7].forEach(i => kids[i].classList.add('f-extra', 'hidden', 'md:block', 'col-span-2', 'md:col-span-1'));
-    const nt = document.getElementById('f-noteacher').parentElement; nt.classList.add('f-extra', 'hidden', 'md:inline-flex');
-    grid.insertAdjacentHTML('afterend', '<button id="f-toggle" class="md:hidden w-full text-xs font-bold text-emerald-700 bg-emerald-50 rounded-xl py-2.5">فلاتر إضافية (المدرس، بحث نصي...) ▾</button>');
-    document.getElementById('f-toggle').addEventListener('click', e => {
-      document.querySelectorAll('#view-filter .f-extra').forEach(x => x.classList.toggle('hidden'));
-      e.target.textContent = document.querySelector('#view-filter .f-extra').classList.contains('hidden') ? 'فلاتر إضافية (المدرس، بحث نصي...) ▾' : 'إخفاء الفلاتر الإضافية ▴';
-    });
-    ['f-school', 'f-day', 'f-period', 'f-stage', 'f-section', 'f-noteacher'].forEach(id => document.getElementById(id).addEventListener('change', applyFilters));
-    document.getElementById('f-school').addEventListener('change', refreshLists);
-    let t; ['f-subject', 'f-teacher', 'f-text'].forEach(id => document.getElementById(id).addEventListener('input', () => { clearTimeout(t); t = setTimeout(applyFilters, 200); }));
-  }
-  const opts = (first, arr) => `<option value="">${first}</option>` + arr.map(v => `<option>${esc(v)}</option>`).join('');
-  function buildFilterOptions() {
-    const uniq = k => [...new Set(FLAT.map(r => r[k]).filter(Boolean))].sort((a, b) => COLL.compare(String(a), String(b)));
-    document.getElementById('f-school').innerHTML = opts('كل المدارس', uniq('school'));
-    document.getElementById('f-day').innerHTML = opts('كل الأيام', DAYS);
-    document.getElementById('f-period').innerHTML = opts('كل الحصص', [1, 2, 3, 4, 5, 6, 7]);
-    document.getElementById('f-stage').innerHTML = opts('كل الصفوف', STAGES);
-    document.getElementById('f-section').innerHTML = '<option value="">كل الشعب</option>' + [1, 2, 3, 4, 5].map(i => `<option value="${i}">شعبة ${i}</option>`).join('') + '<option>أدبي</option><option>علمي</option>';
-    refreshLists();
-  }
-  function refreshLists() {
-    const sc = document.getElementById('f-school').value, rows = sc ? FLAT.filter(r => r.school === sc) : FLAT;
-    const uniq = k => [...new Set(rows.map(r => r[k]).filter(Boolean))].sort((a, b) => COLL.compare(String(a), String(b)));
-    document.getElementById('dl-subject').innerHTML = uniq('subject').map(v => `<option value="${esc(v)}">`).join('');
-    document.getElementById('dl-teacher').innerHTML = uniq('teacher').map(v => `<option value="${esc(v)}">`).join('');
-  }
-  window.applyFilters = function () {
-    LIMIT = IS_MOB() ? 40 : 300;
-    const v = id => document.getElementById(id).value.trim();
-    const sc = v('f-school'), dy = v('f-day'), pr = v('f-period'), st = v('f-stage'), se = v('f-section'), tx = n(v('f-text')), sb = n(v('f-subject')), tc = n(v('f-teacher'));
-    const no = document.getElementById('f-noteacher').checked;
-    FILTERED = FLAT.filter(r => (!sc || r.school === sc) && (!dy || r.day === dy) && (!pr || r.period == pr) && (!st || r.stage === st) && (!se || (/^\d$/.test(se) ? r.sec == se : r.track === se)) &&
-      (!tx || r._k.includes(tx)) &&
-      (!sb || r._s.includes(sb)) && (!tc || r._t.includes(tc)) && (!no || !r.teacher));
-    renderFilter();
-  };
-  function renderFilter() {
-    const shown = FILTERED.slice(0, LIMIT), mob = IS_MOB();
-    document.getElementById('filter-body').innerHTML = mob ? '' : shown.map(r =>
-      `<tr class="hover:bg-slate-50"><td class="p-3 font-semibold">${esc(r.school)}</td><td class="p-3">${esc(r.day)}</td><td class="p-3">${r.period || '—'}</td><td class="p-3">${esc(r.grade)}</td><td class="p-3">${esc(r.subject)}</td><td class="p-3">${esc(r.teacher) || '<span class="text-rose-400">—</span>'}</td></tr>`).join('')
-      || '<tr><td colspan="6" class="p-6 text-center text-slate-400">لا توجد نتائج مطابقة</td></tr>';
-    const oneSchool = document.getElementById('f-school').value;
-    document.getElementById('filter-cards').innerHTML = !mob ? '' : shown.map(r => `
-      <div class="bg-white rounded-2xl border border-slate-200 p-3 shadow-xs active:scale-[.99] transition">
-        <div class="flex items-center justify-between gap-2 mb-1.5">
-          <div class="flex items-center gap-1.5">
-            <span class="bg-emerald-600 text-white text-[11px] font-bold rounded-lg px-2 py-1">الحصة ${r.period || '—'}</span>
-            <span class="bg-slate-100 text-slate-700 text-[11px] font-bold rounded-lg px-2 py-1">${esc(r.day)}</span>
-          </div>
-          <span class="text-[11px] text-indigo-700 bg-indigo-50 rounded-lg px-2 py-1 font-semibold">${esc(r.grade)}</span>
-        </div>
-        <div class="text-sm font-bold text-slate-900">${esc(r.subject) || '—'}</div>
-        <div class="text-xs mt-1 ${r.teacher ? 'text-slate-600' : 'text-rose-500'}"><i class="fa-solid fa-user-tie ml-1"></i>${esc(r.teacher) || 'بلا اسم مدرس'}</div>
-        ${oneSchool ? '' : `<div class="text-[11px] text-slate-400 mt-1.5 border-t border-slate-100 pt-1.5"><i class="fa-solid fa-school ml-1"></i>${esc(r.school)}</div>`}
-      </div>`).join('') || '<div class="p-8 text-center text-slate-400 text-xs bg-white rounded-2xl border border-slate-200">لا توجد نتائج مطابقة</div>';
-    const sc = new Set(FILTERED.map(r => r.school)).size, tc = new Set(FILTERED.map(r => r.teacher).filter(Boolean)).size;
-    document.getElementById('filter-summary').textContent = `${FILTERED.length.toLocaleString('ar')} حصة — ${sc} مدرسة — ${tc} مدرس (من أصل ${FLAT.length.toLocaleString('ar')})`;
-    document.getElementById('filter-more').classList.toggle('hidden', FILTERED.length <= LIMIT);
-  }
-  window.LIMIT_MORE = () => { LIMIT += IS_MOB() ? 60 : 500; renderFilter(); };
-  window.resetFilters = function () {
-    ['f-school', 'f-day', 'f-period', 'f-stage', 'f-section', 'f-subject', 'f-teacher', 'f-text'].forEach(id => document.getElementById(id).value = '');
-    refreshLists();
-    document.getElementById('f-noteacher').checked = false; applyFilters();
-  };
-  window.exportFiltered = function () {
-    if (!FILTERED.length) return showToast('لا توجد نتائج للتصدير', 'error');
-    const ws = XLSX.utils.json_to_sheet(FILTERED.map(r => ({ 'المدرسة': r.school, 'اليوم': r.day, 'الحصة': r.period, 'الصف': r.grade, 'المادة': r.subject, 'اسم المدرس': r.teacher })));
-    const wb = XLSX.utils.book_new(); XLSX.utils.book_append_sheet(wb, ws, 'نتائج الفلترة');
-    XLSX.writeFile(wb, 'برنامج_الدوام_المفلتر.xlsx');
-  };
-
-  // ---------- تكوين فريق الزيارة يدوياً ----------
-  const SPEC = [
-    [/انكليز|انجليز/, /انكليز|انجليز|انكيز/], [/عربي/, /عربي|نحو|ادب|بلاغ|املاء|قواعد|نصوص|تعبير|قراءه|صرف|عروض|مطالعه/],
-    [/رياضيات/, /رياضيات|جبر|هندس|تفاضل|احصاء|حساب/], [/احياء/, /احياء|حياتيه|بيولوج|علوم/],
-    [/فيزياء|كيمياء/, /فيزياء|كيمياء|كمياء|كيميا|فيزيا|علوم/], [/فلسف/, /فلسف|منطق|نفس|اجتماعيات/],
-    [/جغراف/, /جغراف|اجتماعيات/], [/تاريخ/, /تاريخ|اجتماعيات/],
-    [/شريع|شرع|فقه|عقيد|قران|حديث|اصول|فرائض|تفسير|سيره|تجويد|دعوه|خطابه|حوار|مواريث|توحيد|مصطلح|تشريع/, /عقيد|فقه|حديث|تفسير|قران|سيره|تجويد|تجو|دعوه|خطابه|اصول|شرع|شريع|اسلامي|توحيد|شمائل|استحفاظ|فرائض|تلاوه|مواريث|مصطلح/]
-  ];
-  // يدعم أكثر من اختصاص في خانة واحدة مفصولة بـ «،» أو «,» أو «/» أو «+» أو «|» أو سطر جديد أو « و »
-  const splitSpecs = spec => String(spec || '').split(/[،,؛;\/\\|+\n]|\s+و\s+/).map(x => x.trim()).filter(Boolean);
-  const LBL = ['لغة إنكليزية', 'لغة عربية', 'رياضيات', 'علم أحياء', 'فيزياء وكيمياء', 'فلسفة', 'جغرافيا', 'تاريخ', 'شريعة'];
-  // الشريعة لها الأولوية: «الأصول وتاريخ التشريع» شرعي وليس تاريخاً
-  const specIdx = t => SPEC[SPEC.length - 1][0].test(t) ? SPEC.length - 1 : SPEC.findIndex(x => x[0].test(t));
-  const oneRx = part => { const t = n(part), i = specIdx(t); return i >= 0 ? SPEC[i][1] : new RegExp(t.split(' ').filter(w => w.length > 2).join('|') || '$^'); };
-  const specKey = part => { const i = specIdx(n(part)); return i >= 0 ? LBL[i] : String(part).trim(); };
-  // ===== مطابقة حرفية لأسماء المواد كما هي في ورقة الجدول (للاختصاصات الشرعية الدقيقة) =====
-  const STOP = new Set(['اسلامي', 'اسلاميه', 'علوم', 'علم', 'ماده', 'في', 'من', 'و']);
-  const SYN = { مواريث: 'فرائض', فرايض: 'فرائض' };
-  const toks = t => n(t).replace(/ئ/g, 'ي').replace(/ؤ/g, 'و').replace(/[.،,;:+\/\\\-()]/g, ' ').split(' ')
-    .map(w => w.replace(/^و(?=.{3,})/, '').replace(/^ال/, '')).map(w => SYN[w] || w).filter(w => w && !STOP.has(w));
-  const SH = SPEC.length - 1;
-  const GENERIC_SH = new Set(['شريعه', 'شرعيه', 'شرعي', 'ديني', 'دينيه', 'دين', 'تربيه']);   // «شريعة» وحدها = كل المواد الشرعية
-  const exactSh = part => specIdx(n(part)) === SH && !(toks(part).length === 1 && GENERIC_SH.has(toks(part)[0]));
-  const chipKey = part => exactSh(part) ? toks(part).join(' ') : specKey(part);
-  const chipText = part => exactSh(part) ? String(part).trim().replace(/[.\s]+$/, '') : specKey(part);
-  const uniqParts = spec => { const seen = new Set(), out = []; splitSpecs(spec).forEach(p => { const k = chipKey(p); if (k && !seen.has(k)) { seen.add(k); out.push(chipText(p)); } }); return out; };
-  const specLabel = sup => uniqParts(sup.specialty).join('، ');
-  const subjMatch = spec => {
-    const fns = splitSpecs(spec).map(part => {
-      if (exactSh(part)) {
-        const P = toks(part);
-        return subj => { const S = toks(subj); if (!S.length || !P.length) return false; return (S.every(w => P.includes(w)) && (S.length > 1 || SPEC[SH][0].test(S[0]))) || P.every(w => S.includes(w)); };
-      }
-      const rx = oneRx(part), nonSh = specIdx(n(part)) >= 0 && specIdx(n(part)) !== SH;   // مادة شرعية (مثل «تاريخ التشريع») لا تُحسب لموجه التاريخ/اللغة…
-      return subj => rx.test(n(subj)) && !(nonSh && SPEC[SH][0].test(n(subj)));
-    });
-    return subj => fns.some(f => f(subj));
-  };
-  const subjRx = spec => { const parts = splitSpecs(spec); if (parts.length <= 1) return oneRx(spec); return new RegExp(parts.map(x => oneRx(x).source).join('|')); };
-  window.supHasSpec = (sup, target) => splitSpecs(sup.specialty).some(x => n(x) === n(target) || specKey(x) === specKey(target));
-  const dayOf = d => d ? DAYS[new Date(d + 'T00:00:00').getDay()] || '' : '';
-  let TEAM = new Set();
-
-  function injectTeamTab() {
-    document.getElementById('tab-btn-filter').insertAdjacentHTML('beforebegin',
-      `<button onclick="openTeamBuilder()" id="tab-btn-team" class="px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold text-slate-600 hover:bg-slate-100 transition flex items-center gap-2"><i class="fa-solid fa-people-group"></i><span>تكوين فريق الزيارة</span></button>`);
-    document.getElementById('view-filter').insertAdjacentHTML('beforebegin', `
-    <div id="view-team" class="hidden space-y-4 pb-4">
-      <div class="bg-white p-4 rounded-2xl border border-slate-200 space-y-3">
-        <h3 class="text-base font-bold text-slate-900">تكوين فريق الزيارة (تحدده أنت حسب المتاح في المدرسة)</h3>
-        <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
-          ${field('المدرسة', `<div class="relative mb-1.5"><i class="fa-solid fa-magnifying-glass absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs"></i><input id="t-sq" type="search" autocomplete="off" placeholder="ابحث عن مدرسة…" class="${inp} pr-8"></div><select id="t-school" class="${inp}"></select><div id="t-sqc" class="text-[11px] text-slate-400 mt-1"></div>`)}
-          ${field('يوم الزيارة', `<select id="t-day" class="${inp}">${'<option value="">— اختر اليوم —</option>' + DAYS.slice(0, 5).map(d => `<option>${d}</option>`).join('')}</select>`)}
-          ${field('تاريخ الزيارة (اختياري)', `<input type="date" id="t-date" class="${inp}">`)}
-          ${field('عرض الموجهين', `<label class="flex items-center gap-2 text-xs pt-2"><input type="checkbox" id="t-all"> كل الموجهين (وليس نفس جنس المدرسة فقط)</label>`)}
-        </div>
-      </div>
-      <div class="bg-white p-3 rounded-2xl border border-slate-200 flex items-center gap-2">
-        <i class="fa-solid fa-magnifying-glass text-slate-400"></i>
-        <input id="t-q" type="search" autocomplete="off" placeholder="ابحث عن موجه بالاسم أو الاختصاص…" class="flex-1 min-w-0 text-sm bg-transparent focus:outline-none">
-        <label class="flex items-center gap-1 text-[11px] font-bold text-slate-600 whitespace-nowrap"><input type="checkbox" id="t-sel"> المختارون فقط</label>
-        <span id="t-qc" class="text-[11px] text-slate-400 whitespace-nowrap"></span>
-      </div>
-      <div id="t-avail" class="bg-white p-3 rounded-2xl border border-slate-200 text-xs"></div>
-      <div id="t-alert"></div>
-      <div id="t-cards" class="md:hidden space-y-2"></div>
-      <div class="hidden md:block bg-white rounded-2xl border border-slate-200 overflow-x-auto custom-scrollbar">
-        <table class="w-full text-xs text-right"><thead class="bg-slate-50 text-slate-600"><tr><th class="p-3 w-10"></th><th class="p-3">الموجه</th><th class="p-3">الاختصاص</th><th class="p-3">حصصه في المدرسة (أسبوعياً)</th><th class="p-3">حصصه يوم الزيارة</th><th class="p-3">الحالة</th></tr></thead>
-        <tbody id="t-body" class="divide-y divide-slate-100"></tbody></table>
-      </div>
-      <div id="t-bar" class="sticky bottom-28 md:bottom-2 z-30 shadow-lg flex flex-wrap items-center justify-between gap-2 bg-emerald-50 border border-emerald-300 rounded-2xl px-4 py-3">
-        <span class="text-xs font-bold text-emerald-900">عدد أعضاء الفريق: <span id="t-count">0</span></span>
-        <div class="flex flex-wrap gap-2"><button onclick="openTeamShare()" class="text-xs bg-white border border-emerald-400 text-emerald-700 px-3 py-2.5 rounded-xl font-bold"><i class="fa-brands fa-whatsapp ml-1"></i>إرسال وتصدير</button><button onclick="clearTeam()" class="text-xs bg-white border border-slate-300 px-3 py-2.5 rounded-xl font-bold">إلغاء الفريق</button>
-        <button onclick="saveTeam()" class="text-sm bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2.5 rounded-xl font-bold">حفظ الفريق</button></div>
-      </div>
-    </div>`);
-    document.getElementById('t-school').addEventListener('change', () => loadTeam());
-    document.getElementById('t-sq').addEventListener('input', () => { if (fillSchools(document.getElementById('t-school').value)) loadTeam(); });
-    document.getElementById('t-sq').addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); } });
-    document.getElementById('t-date').addEventListener('change', () => { const d = dayOf(document.getElementById('t-date').value); if (DAYS.slice(0, 5).includes(d)) document.getElementById('t-day').value = d; renderTeam(); });
-    document.getElementById('t-day').addEventListener('change', renderTeam);
-    document.getElementById('t-all').addEventListener('change', renderTeam);
-    document.getElementById('t-q').addEventListener('input', renderTeam);
-    document.getElementById('t-sel').addEventListener('change', renderTeam);
-    ['t-body', 't-cards'].forEach(id => document.getElementById(id).addEventListener('change', e => {
-      if (e.target.dataset.sup) { e.target.checked ? TEAM.add(e.target.dataset.sup) : TEAM.delete(e.target.dataset.sup); renderTeam(); }
-    }));
-  }
-  function curSchool() { return schools.find(s => s.id === document.getElementById('t-school').value); }
-  function fillSchools(keep) {
-    const sel = document.getElementById('t-school'), q = n(document.getElementById('t-sq').value), c = document.getElementById('t-sqc');
-    const list = schools.filter(s => !q || n(s.name).includes(q));
-    if (!list.length) { c.textContent = 'لا توجد مدرسة بهذا الاسم'; return false; }
-    sel.innerHTML = list.map(s => `<option value="${s.id}">${esc(s.name)}</option>`).join('');
-    c.textContent = q ? `${list.length} من ${schools.length} مدرسة` : '';
-    const before = keep || '';
-    sel.value = list.some(s => s.id === before) ? before : list[0].id;
-    return sel.value !== before;
-  }
-  window.openTeamBuilder = function (id) {
-    const sel = document.getElementById('t-school');
-    document.getElementById('t-sq').value = '';
-    fillSchools(id || sel.value);
-    switchView('team'); loadTeam();
-  };
-  function loadTeam() {
-    const e = distributionResults.find(d => d.schoolId === document.getElementById('t-school').value);
-    TEAM = new Set((e?.supervisors || []).map(s => s.id));
-    const vd = e?.visitDate || '', isDay = DAYS.includes(vd);
-    document.getElementById('t-date').value = isDay ? '' : vd;
-    const d = isDay ? vd : dayOf(vd); document.getElementById('t-day').value = DAYS.slice(0, 5).includes(d) ? d : '';
-    renderTeam();
-  }
-  function supStats(sup, school) {
-    const mt = subjMatch(sup.specialty), rows = (schedules[school.id] || []).filter(r => mt(r.subject));
-    const dy = document.getElementById('t-day').value;
-    const weekly = rows.length, onDay = dy ? rows.filter(r => r.day === dy).length : null;
-    const days = [...new Set(rows.map(r => r.day))];
-    let warn = '';
-    if (!weekly) warn = 'لا توجد حصص لاختصاصه في هذه المدرسة';
-    else if (onDay === 0) warn = `لا حصص لاختصاصه يوم ${dy} (يتوفر: ${days.join('، ')})`;
-    const subs = {}; (dy ? rows.filter(r => r.day === dy) : rows).forEach(r => { const k = String(r.subject || '').trim() || '—'; subs[k] = (subs[k] || 0) + 1; });
-    return { weekly, onDay, warn, subs };
-  }
-  function renderTeam() {
-    const sc = curSchool(); if (!sc) return;
-    const all = document.getElementById('t-all').checked;
-    const q = n(document.getElementById('t-q').value), onlySel = document.getElementById('t-sel').checked;
-    const base = supervisors.filter(s => all || (sc.gender === 'ذكور') === (s.gender === 'ذكر'));
-    const list = base.filter(s => (!q || n(s.name + ' ' + s.specialty + ' ' + specLabel(s)).includes(q)) && (!onlySel || TEAM.has(s.id)));
-    document.getElementById('t-qc').textContent = (q || onlySel) ? `${list.length} من ${base.length}` : '';
-    const warns = [];
-    document.getElementById('t-body').innerHTML = list.map(s => {
-      const st = supStats(s, sc), on = TEAM.has(s.id);
-      if (on && st.warn) warns.push(`${s.name} (${specLabel(s)}): ${st.warn}`);
-      const badge = st.warn ? `<span class="text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-0.5">⚠ ${esc(st.warn)}</span>` : '<span class="text-emerald-700">✓ متاح</span>';
-      return `<tr class="${on ? 'bg-emerald-50/60' : ''}"><td class="p-3"><input type="checkbox" data-sup="${s.id}" ${on ? 'checked' : ''}></td><td class="p-3 font-semibold">${esc(s.name)}</td><td class="p-3">${esc(specLabel(s))}</td><td class="p-3">${st.weekly}</td><td class="p-3">${st.onDay ?? '—'}</td><td class="p-3">${badge}</td></tr>`;
-    }).join('') || '<tr><td colspan="6" class="p-6 text-center text-slate-400">لا يوجد موجهون</td></tr>';
-    document.getElementById('t-cards').innerHTML = list.map(s => {
-      const st = supStats(s, sc), on = TEAM.has(s.id), bad = !!st.warn;
-      return `<label class="block bg-white rounded-2xl border-2 p-3 cursor-pointer transition ${on ? (bad ? 'border-amber-400 bg-amber-50/60' : 'border-emerald-500 bg-emerald-50/60') : 'border-slate-200'}">
-        <div class="flex items-start gap-3">
-          <input type="checkbox" data-sup="${s.id}" ${on ? 'checked' : ''} class="mt-1 w-6 h-6 accent-emerald-600 shrink-0">
-          <div class="flex-1 min-w-0">
-            <div class="font-bold text-sm text-slate-900">${esc(s.name)}</div>
-            <div class="text-xs text-emerald-700 font-semibold">${esc(specLabel(s))}</div>
-            <div class="flex flex-wrap gap-1.5 mt-2 text-[11px]">
-              <span class="bg-slate-100 rounded-lg px-2 py-0.5">أسبوعياً: <b>${st.weekly}</b></span>
-              ${st.onDay === null ? '' : `<span class="bg-slate-100 rounded-lg px-2 py-0.5">يوم الزيارة: <b>${st.onDay}</b></span>`}
+                </div>
             </div>
-            ${Object.keys(st.subs).length ? `<div class="mt-1.5 text-[11px] text-slate-500">المواد${document.getElementById('t-day').value ? ' يوم الزيارة' : ''}: ${Object.entries(st.subs).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([k, v]) => esc(k) + ' (' + v + ')').join('، ')}</div>` : ''}
-            <div class="mt-2 text-[11px] ${bad ? 'text-amber-700 font-bold' : 'text-emerald-700'}">${bad ? '⚠ ' + esc(st.warn) : '✓ لديه حصص متاحة'}</div>
-          </div>
         </div>
-      </label>`;
-    }).join('');
-    document.getElementById('t-count').textContent = TEAM.size;
-    const dy = document.getElementById('t-day').value, rows = (schedules[sc.id] || []).filter(r => !dy || r.day === dy);
-    const chipMap = new Map(); supervisors.forEach(s => splitSpecs(s.specialty).forEach(p => { const k = chipKey(p); if (k && !chipMap.has(k)) chipMap.set(k, chipText(p)); }));
-    const specs = [...chipMap.values()].map(sp => { const mt = subjMatch(sp); return [sp, rows.filter(r => mt(r.subject)).length]; });
-    const okSp = specs.filter(x => x[1] > 0).sort((a, b) => b[1] - a[1]), noSp = specs.filter(x => !x[1]);
-    document.getElementById('t-avail').innerHTML = `
-      <div class="av-head"><i class="fa-solid fa-chart-simple"></i><b>المتاح في المدرسة ${dy ? 'يوم ' + dy : 'خلال الأسبوع'}</b></div>
-      <div class="av-grid">${okSp.map(([sp, c]) => `<div class="av-tile"><span class="av-name">${esc(sp)}</span><span class="av-num">${c}</span></div>`).join('') || '<div class="av-empty">لا توجد حصص متاحة</div>'}</div>
-      ${noSp.length ? `<div class="av-none-t">بدون حصص (${noSp.length})</div><div class="av-none">${noSp.map(([sp]) => `<span>${esc(sp)}</span>`).join('')}</div>` : ''}`;
-    document.getElementById('t-alert').innerHTML = warns.length ? `<div class="bg-amber-50 border border-amber-300 text-amber-900 rounded-xl p-3 text-xs space-y-1"><b>تنبيه: أعضاء مختارون بلا حصص من اختصاصهم</b>${warns.map(w => `<div>• ${esc(w)}</div>`).join('')}</div>` : '';
-  }
-  window.saveTeam = function () {
-    const sc = curSchool(); if (!sc) return;
-    const team = supervisors.filter(s => TEAM.has(s.id)).map(s => ({ id: s.id, name: s.name, specialty: specLabel(s), phone: s.phone, gender: s.gender, warn: supStats(s, sc).warn }));
-    const entry = { schoolId: sc.id, schoolName: sc.name, gender: sc.gender, stage: sc.stage, sections: sc.sections, zone: sc.zone,
-      visitDate: document.getElementById('t-date').value || document.getElementById('t-day').value, supervisors: team, manual: true };
-    const i = distributionResults.findIndex(d => d.schoolId === sc.id);
-    i >= 0 ? distributionResults[i] = entry : distributionResults.push(entry);
-    persistData(); renderAllViews();
-    const w = team.filter(t => t.warn).length;
-    showToast(w ? `تم الحفظ (${team.length} أعضاء) مع ${w} تنبيه` : `تم حفظ فريق الزيارة (${team.length} أعضاء)`, w ? 'info' : 'success');
-  };
-  window.clearTeam = function () {
-    const sc = curSchool(); if (!sc) return;
-    distributionResults = distributionResults.filter(d => d.schoolId !== sc.id);
-    TEAM = new Set(); persistData(); renderAllViews(); renderTeam(); showToast('أُلغي فريق المدرسة');
-  };
-  const _auto = window.runIntelligentDistribution;
-  window.runIntelligentDistribution = function () {
-    const keep = distributionResults.filter(d => d.manual);
-    _auto();
-    keep.forEach(m => { const i = distributionResults.findIndex(d => d.schoolId === m.schoolId); i >= 0 ? distributionResults[i] = m : distributionResults.push(m); });
-    persistData(); renderAllViews();
-  };
+    </header>
 
-  // ---------- بطاقات جدول الزيارات للجوال ----------
-  const _renderDist = window.renderDistributionTable;
-  window.renderDistributionTable = function () {
-    _renderDist();
-    const box = document.getElementById('distribution-cards'); if (!box) return;
-    const g = document.getElementById('filter-dist-gender').value, q = n(document.getElementById('search-dist-school').value);
-    const rows = distributionResults.filter(r => (g === 'ALL' || r.gender === g) && (!q || n(r.schoolName + ' ' + r.zone).includes(q)));
-    box.innerHTML = rows.map(r => `
-      <div class="bg-white rounded-2xl border border-slate-200 p-3 shadow-xs">
-        <div class="flex items-start justify-between gap-2">
-          <div class="font-bold text-sm text-slate-900">${esc(r.schoolName)}</div>
-          <span class="shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full ${r.gender === 'ذكور' ? 'bg-blue-100 text-blue-800' : 'bg-rose-100 text-rose-800'}">${r.gender === 'ذكور' ? 'بنين' : 'بنات'}</span>
+    <main class="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6 space-y-6">
+
+        <!-- بطاقة التعريف بالنظام المعتمد -->
+        <section id="app-hero" class="bg-gradient-to-r from-slate-900 via-slate-800 to-emerald-950 text-white rounded-3xl p-5 sm:p-6 shadow-xl no-print relative overflow-hidden">
+            <div class="relative z-10 grid grid-cols-1 lg:grid-cols-12 gap-5 items-center">
+                <div class="lg:col-span-5 space-y-1">
+                    <span class="inline-flex items-center gap-1.5 bg-emerald-500/20 text-emerald-300 text-xs px-2.5 py-1 rounded-lg border border-emerald-400/30">
+                        <i class="fa-solid fa-users-gear text-[11px]"></i>
+                        <span>قاعدة الإشراف الشامل والمفتوح</span>
+                    </span>
+                    <h2 class="text-lg font-bold text-white">الموجهون مسؤولون عن كافة المدارس من نفس الجنس</h2>
+                    <p class="text-xs text-slate-300 leading-relaxed">
+                        جميع الموجهين الذكور يشرفون على كافة مدارس البنين، وجميع الموجهات الإناث يشرفن على كافة مدارس البنات، مع جدولة الزيارات الميدانية التخصصية دون حصر أي موجه بمدارس محددة.
+                    </p>
+                </div>
+
+                <div class="lg:col-span-7 grid grid-cols-1 sm:grid-cols-3 gap-3">
+                    <div class="bg-white/10 backdrop-blur-md rounded-2xl p-3 border border-white/10">
+                        <label class="block text-[11px] font-semibold text-emerald-200 mb-1">تاريخ بداية الجولة</label>
+                        <input type="date" id="plan-start-date" class="w-full bg-white/20 border border-white/20 text-white rounded-xl px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-400">
+                    </div>
+                    <div class="bg-white/10 backdrop-blur-md rounded-2xl p-3 border border-white/10">
+                        <label class="block text-[11px] font-semibold text-emerald-200 mb-1">تاريخ نهاية الجولة</label>
+                        <input type="date" id="plan-end-date" class="w-full bg-white/20 border border-white/20 text-white rounded-xl px-3 py-1.5 text-xs focus:outline-none focus:ring-2 focus:ring-emerald-400">
+                    </div>
+                    <div class="bg-white/10 backdrop-blur-md rounded-2xl p-3 border border-white/10">
+                        <label class="block text-[11px] font-semibold text-emerald-200 mb-1">فريق الزيارة</label>
+                        <select id="team-size-per-school" class="w-full bg-white/20 border border-white/20 text-white rounded-xl px-3 py-1.5 text-xs mb-2 focus:outline-none">
+                            <option value="ALL" selected style="color:#0f172a">كل الموجهين في زيارة واحدة</option>
+                            <option value="2" style="color:#0f172a">فريق من 2</option>
+                            <option value="3" style="color:#0f172a">فريق من 3</option>
+                        </select>
+                        <button onclick="openTeamBuilder()" class="w-full bg-emerald-500 hover:bg-emerald-400 text-white rounded-xl px-3 py-2 text-xs font-bold flex items-center justify-center gap-2"><i class="fa-solid fa-people-group"></i><span>حدّد الفريق حسب حصص المدرسة واليوم</span></button>
+                    </div>
+                </div>
+            </div>
+        </section>
+
+        <!-- لوحة الإحصائيات -->
+        <section id="app-stats" class="grid grid-cols-2 lg:grid-cols-4 gap-3 no-print">
+            <div class="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center text-lg">
+                    <i class="fa-solid fa-person"></i>
+                </div>
+                <div>
+                    <p class="text-[11px] font-medium text-slate-500">الموجهون الذكور</p>
+                    <p class="text-xl font-bold text-slate-800"><span id="stat-male-sup">0</span> <span class="text-xs font-normal text-slate-500">(يشرفون على كل مدارس البنين)</span></p>
+                </div>
+            </div>
+
+            <div class="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center text-lg">
+                    <i class="fa-solid fa-person-dress"></i>
+                </div>
+                <div>
+                    <p class="text-[11px] font-medium text-slate-500">الموجهات الإناث</p>
+                    <p class="text-xl font-bold text-slate-800"><span id="stat-female-sup">0</span> <span class="text-xs font-normal text-slate-500">(يشرفن على كل مدارس البنات)</span></p>
+                </div>
+            </div>
+
+            <div class="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl bg-indigo-50 text-indigo-600 flex items-center justify-center text-lg">
+                    <i class="fa-solid fa-school"></i>
+                </div>
+                <div>
+                    <p class="text-[11px] font-medium text-slate-500">إجمالي مدارس البنين المتاحة</p>
+                    <p class="text-xl font-bold text-slate-800" id="stat-male-sch">0</p>
+                </div>
+            </div>
+
+            <div class="bg-white p-4 rounded-2xl border border-slate-200/80 shadow-xs flex items-center gap-3">
+                <div class="w-10 h-10 rounded-xl bg-purple-50 text-purple-600 flex items-center justify-center text-lg">
+                    <i class="fa-solid fa-school-flag"></i>
+                </div>
+                <div>
+                    <p class="text-[11px] font-medium text-slate-500">إجمالي مدارس البنات المتاحة</p>
+                    <p class="text-xl font-bold text-slate-800" id="stat-female-sch">0</p>
+                </div>
+            </div>
+        </section>
+
+        <!-- شريط التبويبات -->
+        <div id="app-tabs" class="flex flex-wrap items-center justify-between border-b border-slate-200 pb-2 no-print gap-2">
+            <div class="flex items-center gap-1.5 overflow-x-auto">
+                <button onclick="switchView('distribution')" id="tab-btn-distribution" class="px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold bg-emerald-600 text-white flex items-center gap-2 shadow-xs transition">
+                    <i class="fa-solid fa-calendar-days"></i>
+                    <span>جدول الزيارات والمطابقة</span>
+                </button>
+                <button onclick="switchView('supervisors')" id="tab-btn-supervisors" class="px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold text-slate-600 hover:bg-slate-100 transition flex items-center gap-2">
+                    <i class="fa-solid fa-user-tie"></i>
+                    <span>كادر الموجهين ونطاق المسؤولية</span>
+                </button>
+                <button onclick="switchView('schools')" id="tab-btn-schools" class="px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold text-slate-600 hover:bg-slate-100 transition flex items-center gap-2">
+                    <i class="fa-solid fa-mosque"></i>
+                    <span>سجل المدارس الشرعية</span>
+                </button>
+                <button onclick="switchView('schedules')" id="tab-btn-schedules" class="px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold text-slate-600 hover:bg-slate-100 transition flex items-center gap-2">
+                    <i class="fa-solid fa-table-cells"></i>
+                    <span>جدول الحصص الأسبوعي (7 حصص)</span>
+                </button>
+                <button onclick="switchView('import')" id="tab-btn-import" class="px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold text-slate-600 hover:bg-slate-100 transition flex items-center gap-2">
+                    <i class="fa-solid fa-cloud-arrow-down"></i>
+                    <span>التصدير والنسخ الاحتياطي</span>
+                </button>
+            </div>
+
         </div>
-        <div class="text-xs text-emerald-800 font-semibold mt-1"><i class="fa-solid fa-calendar-day ml-1"></i>${esc(fmtDate(r.visitDate))}</div>
-        ${r.zone || r.categoryLabel ? `<div class="text-[11px] text-slate-500 mt-0.5"><i class="fa-solid fa-location-dot ml-1"></i>${esc(r.zone || '')}${r.categoryLabel ? ' · ' + esc(r.categoryLabel) : ''}${r.km !== undefined && r.km !== '' && r.km !== null && !isNaN(parseFloat(r.km)) ? ' · ' + esc(String(r.km)) + ' كم' : ''}</div>` : ''}
-        <div class="mt-2 flex flex-wrap gap-1">${(r.supervisors || []).map(s => `<span class="bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-[11px]"><b>${esc(s.name)}</b> <span class="text-emerald-700">(${esc(specLabel(s))})</span>${s.warn ? ' <span class="text-amber-500" title="' + esc(s.warn) + '">⚠</span>' : ''}</span>`).join('') || '<span class="text-amber-600 text-[11px]">لم يُحدَّد فريق</span>'}</div>
-        <div class="grid grid-cols-3 gap-2 mt-3">
-          <button onclick="openTeamBuilder('${r.schoolId}')" class="bg-emerald-600 text-white text-xs font-bold rounded-xl py-2.5"><i class="fa-solid fa-people-group ml-1"></i>تحديد الفريق</button>
-          <button onclick="viewSchoolScheduleModal('${r.schoolId}')" class="bg-slate-100 text-slate-700 text-xs font-bold rounded-xl py-2.5"><i class="fa-solid fa-calendar-check ml-1"></i>الحصص</button>
-          <button onclick="openWaReport('${r.schoolId}')" class="bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-bold rounded-xl py-2.5"><i class="fa-brands fa-whatsapp ml-1"></i>تقرير</button>
+
+        <!-- 1. عرض جدول الزيارات والمطابقة -->
+        <div id="view-distribution" class="space-y-4">
+            <div class="bg-white p-4 rounded-2xl border border-slate-200 shadow-xs flex flex-col md:flex-row items-start md:items-center justify-between gap-3 no-print">
+                <div class="flex flex-wrap items-center gap-2">
+                    <span class="text-xs font-bold text-slate-700">تصفية العرض:</span>
+                    <select id="filter-dist-gender" onchange="renderDistributionTable()" class="text-xs border border-slate-200 rounded-xl px-2.5 py-1.5 bg-slate-50">
+                        <option value="ALL">جميع المدارس (بنين وبنات)</option>
+                        <option value="ذكور">مدارس البنين (إشراف كادر الموجهين الذكور)</option>
+                        <option value="إناث">مدارس البنات (إشراف كادر الموجهات الإناث)</option>
+                    </select>
+
+                    <input type="text" id="search-dist-school" oninput="renderDistributionTable()" placeholder="بحث باسم المدرسة أو المنطقة..." class="text-xs border border-slate-200 rounded-xl px-3 py-1.5 w-48 sm:w-60 focus:outline-none focus:ring-1 focus:ring-emerald-500">
+                </div>
+
+                <div class="text-xs text-slate-500 font-medium">
+                    المدارس المجدولة للزيارة: <span id="dist-assigned-stat" class="font-bold text-emerald-700">0</span> من إجمالي <span id="dist-total-stat" class="font-bold text-slate-800">0</span>
+                </div>
+            </div>
+
+            <div id="distribution-cards" class="md:hidden space-y-2"></div>
+            <div class="hidden md:block bg-white rounded-2xl border border-slate-200 shadow-xs overflow-hidden">
+                <div class="overflow-x-auto">
+                    <table class="w-full text-right border-collapse text-xs">
+                        <thead>
+                            <tr class="bg-slate-50 text-slate-700 font-bold border-b border-slate-200">
+                                <th class="p-3 w-12 text-center">#</th>
+                                <th class="p-3">المدرسة الشرعية</th>
+                                <th class="p-3 text-center">الجنس</th>
+                                <th class="p-3">المرحلة والصفوف</th>
+                                <th class="p-3">المنطقة</th>
+                                <th class="p-3">كادر التوجيه المسؤول العام</th>
+                                <th class="p-3">تاريخ الزيارة المقترحة</th>
+                                <th class="p-3">فريق الزيارة المكلف (وفق التخصص)</th>
+                                <th class="p-3 text-center no-print">حصص</th>
+                            </tr>
+                        </thead>
+                        <tbody id="distribution-table-body" class="divide-y divide-slate-100">
+                        </tbody>
+                    </table>
+                </div>
+            </div>
         </div>
-      </div>`).join('') || '<div class="p-8 text-center text-slate-400 text-xs bg-white rounded-2xl border border-slate-200">لا يوجد جدول زيارات حالياً</div>';
-  };
 
+        <!-- 2. عرض كادر الموجهين ونطاق المسؤولية -->
+        <div id="view-supervisors" class="space-y-4 hidden">
+            <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-slate-200">
+                <div>
+                    <h3 class="text-sm sm:text-base font-bold text-slate-900">سجل المشرفين والموجهين التربويين</h3>
+                    <p class="text-xs text-slate-500">الموجهون الذكور مسؤولون عن جميع مدارس الذكور، والموجهات الإناث مسؤولات عن جميع مدارس الإناث دون حصر</p>
+                </div>
+                <div class="flex gap-2">
+                    <button onclick="openSupervisorModal()" class="inline-flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-3 py-2 rounded-xl transition shadow-xs">
+                        <i class="fa-solid fa-user-plus"></i>
+                        <span>إضافة موجه</span>
+                    </button>
+                </div>
+            </div>
 
-  // ---------- تقرير واتساب ----------
-  const WA_KEY = 'sup_wa_phone';
-  const NUM = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣'];
-  const fmtDate = v => {
-    const t = String(v || '').trim(); if (!t) return 'زيارة دورية مفتوحة';
-    const m = t.match(/^(\d{4})-(\d{2})-(\d{2})$/);
-    if (!m) return t;
-    const d = new Date(+m[1], +m[2] - 1, +m[3]);
-    return ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'][d.getDay()] + ' ' + m[3] + '/' + m[2] + '/' + m[1];
-  };
-  function buildWaReport(opt) {
-    const rows = (typeof distributionResults !== 'undefined' ? distributionResults : []).filter(r => (opt.schoolId ? r.schoolId === opt.schoolId : true));
-    let list = rows.filter(r => opt.gender === 'ALL' || r.gender === opt.gender);
-    const scheduled = list.filter(r => r.supervisors && r.supervisors.length);
-    if (!opt.unscheduled) list = scheduled;
-    list = list.slice().sort((a, b) => (a.gender === b.gender ? 0 : a.gender === 'ذكور' ? -1 : 1) || String(a.visitDate || '9').localeCompare(String(b.visitDate || '9')) || COLL.compare(a.schoolName, b.schoolName));
-    const today = new Date().toLocaleDateString('ar', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
-    const out = [];
-    out.push(opt.schoolId ? '*📋 تقرير زيارة مدرسة*' : '*📋 خطة الزيارات الإشرافية*');
-    out.push('دائرة الإشراف والتوجيه التربوي');
-    out.push('🗓 ' + today);
-    if (!opt.schoolId) out.push(`📌 المجدولة: ${scheduled.length} من ${(typeof schools !== 'undefined' ? schools : []).length} مدرسة`);
-    if (!list.length) { out.push('', 'لا توجد زيارات مجدولة ضمن هذا الاختيار.'); return out.join('\n'); }
-    let lastG = null, i = 0;
-    list.forEach(r => {
-      if (r.gender !== lastG && !opt.schoolId) { lastG = r.gender; i = 0; out.push('', r.gender === 'ذكور' ? '*— مدارس البنين —*' : '*— مدارس البنات —*'); }
-      i++;
-      out.push('', `${NUM[i - 1] || i + '.'} *${r.schoolName}*`);
-      out.push('📅 ' + fmtDate(r.visitDate));
-      const sup = r.supervisors || [], long = sup.length > 6;
-      const team = (long ? `جميع الموجهين (${sup.length}): ` : '') + sup.map(x => x.name + (!long && x.specialty ? ' (' + x.specialty + ')' : '')).join('، ');
-      out.push('👥 ' + (team || 'لم يُحدَّد الفريق بعد'));
-      const warns = (r.supervisors || []).filter(x => x.warn).length;
-      if (warns) out.push('⚠️ يوجد تنبيه على الفريق، يُراجع قبل الزيارة');
-    });
-    out.push('', '_أُعدّ عبر منظومة الإشراف_');
-    return out.join('\n');
-  }
-  function ensureWaModal() {
-    if (document.getElementById('wa-modal')) return;
-    document.body.insertAdjacentHTML('beforeend', `
-    <div id="wa-modal" class="fixed inset-0 z-50 no-print" style="display:none">
-      <div class="absolute inset-0 bg-slate-900/50" data-wa="close"></div>
-      <div class="absolute bottom-0 inset-x-0 md:inset-x-auto md:left-1/2 md:-translate-x-1/2 md:bottom-auto md:top-10 md:w-[560px] bg-white rounded-t-3xl md:rounded-3xl p-4 space-y-3 max-h-[92vh] overflow-y-auto" style="padding-bottom:calc(16px + env(safe-area-inset-bottom))">
-        <div class="flex items-center justify-between">
-          <h3 class="text-base font-bold text-slate-900"><i class="fa-brands fa-whatsapp text-emerald-600 ml-1"></i>تقرير واتساب</h3>
-          <button data-wa="close" class="w-9 h-9 rounded-xl bg-slate-100 text-slate-600"><i class="fa-solid fa-xmark"></i></button>
+            <div class="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+                <div class="overflow-x-auto">
+                    <table class="w-full text-right border-collapse text-xs">
+                        <thead>
+                            <tr class="bg-slate-50 text-slate-700 font-bold border-b border-slate-200">
+                                <th class="p-3 w-12 text-center">#</th>
+                                <th class="p-3">اسم الموجه / المشرف</th>
+                                <th class="p-3 text-center">الجنس</th>
+                                <th class="p-3">التخصص الأساسي</th>
+                                <th class="p-3">رقم الهاتف</th>
+                                <th class="p-3 text-center">نطاق المسؤولية المعتمد</th>
+                                <th class="p-3 text-center">عدد الزيارات المجدولة له</th>
+                                <th class="p-3 text-center no-print">تحكم</th>
+                            </tr>
+                        </thead>
+                        <tbody id="supervisors-table-body" class="divide-y divide-slate-100">
+                        </tbody>
+                    </table>
+                </div>
+            </div>
         </div>
-        <div class="grid grid-cols-2 gap-2">
-          <select id="wa-gender" class="text-sm border border-slate-200 rounded-xl px-3 py-2 bg-slate-50"><option value="ALL">كل المدارس</option><option value="ذكور">البنين</option><option value="إناث">البنات</option></select>
-          <label class="flex items-center gap-2 text-xs font-bold text-slate-600 bg-slate-50 border border-slate-200 rounded-xl px-3"><input type="checkbox" id="wa-unsch"> مع غير المجدولة</label>
+
+        <!-- 3. عرض سجل المدارس الشرعية -->
+        <div id="view-schools" class="hidden space-y-4">
+            <div class="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 bg-white p-4 rounded-2xl border border-slate-200">
+                <div>
+                    <h3 class="text-sm sm:text-base font-bold text-slate-900">سجل المدارس والمعاهد الشرعية</h3>
+                    <p class="text-xs text-slate-500">كافة مدارس البنين تتبع لجميع الموجهين الذكور، ومدارس البنات تتبع لجميع الموجهات الإناث</p>
+                </div>
+                <div class="flex gap-2">
+                    <button onclick="openSchoolModal()" class="inline-flex items-center gap-1.5 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold px-3 py-2 rounded-xl transition shadow-xs">
+                        <i class="fa-solid fa-plus"></i>
+                        <span>إضافة مدرسة</span>
+                    </button>
+                </div>
+            </div>
+
+            <div class="bg-white rounded-2xl border border-slate-200 overflow-hidden">
+                <div class="overflow-x-auto">
+                    <table class="w-full text-right border-collapse text-xs">
+                        <thead>
+                            <tr class="bg-slate-50 text-slate-700 font-bold border-b border-slate-200">
+                                <th class="p-3 w-12 text-center">#</th>
+                                <th class="p-3">اسم المدرسة الشرعية</th>
+                                <th class="p-3 text-center">نوع المدرسة</th>
+                                <th class="p-3">المراحل المتوفرة</th>
+                                <th class="p-3 text-center">إجمالي الشعب</th>
+                                <th class="p-3">المنطقة والحي</th>
+                                <th class="p-3">كادر التوجيه المشرف عليها</th>
+                                <th class="p-3 text-center no-print">تحكم</th>
+                            </tr>
+                        </thead>
+                        <tbody id="schools-table-body" class="divide-y divide-slate-100">
+                        </tbody>
+                    </table>
+                </div>
+            </div>
         </div>
-        <textarea id="wa-text" rows="12" class="w-full text-sm border border-slate-200 rounded-2xl p-3 bg-slate-50 leading-relaxed" style="-webkit-user-select:text;user-select:text"></textarea>
-        <input id="wa-phone" inputmode="tel" dir="ltr" placeholder="رقم المستلم بصيغة دولية (اختياري) مثل 963912345678" class="w-full text-sm border border-slate-200 rounded-xl px-3 py-2 bg-slate-50">
-        <div id="wa-note" class="text-[11px] text-amber-600 hidden"></div>
-        <div class="grid grid-cols-3 gap-2">
-          <button data-wa="send" class="col-span-3 bg-emerald-600 text-white text-sm font-bold rounded-2xl py-3"><i class="fa-brands fa-whatsapp ml-1"></i>إرسال عبر واتساب</button>
-          <button data-wa="share" class="bg-slate-100 text-slate-700 text-xs font-bold rounded-xl py-2.5"><i class="fa-solid fa-share-nodes ml-1"></i>مشاركة</button>
-          <button data-wa="copy" class="bg-slate-100 text-slate-700 text-xs font-bold rounded-xl py-2.5"><i class="fa-regular fa-copy ml-1"></i>نسخ</button>
-          <button data-wa="refresh" class="bg-slate-100 text-slate-700 text-xs font-bold rounded-xl py-2.5"><i class="fa-solid fa-rotate ml-1"></i>إعادة توليد</button>
+
+        <!-- 4. عرض جداول الحصص الأسبوعية -->
+        <div id="view-schedules" class="hidden space-y-4">
+            <div class="bg-white p-4 rounded-2xl border border-slate-200">
+                <div class="flex flex-col md:flex-row md:items-center justify-between gap-3">
+                    <div>
+                        <h3 class="text-base font-bold text-slate-900">جداول الحصص الأسبوعية للمدارس الشرعية (7 حصص يومياً)</h3>
+                        <p class="text-xs text-slate-500">توزيع الحصص والبرنامج المعتمد لمتابعته من قبل أي موجه في اختصاصه</p>
+                    </div>
+                    <div class="flex items-center gap-2">
+                        <label class="text-xs font-bold text-slate-600">اختر المدرسة:</label>
+                        <select id="schedule-school-selector" onchange="renderSchoolScheduleView()" class="text-xs border border-slate-300 rounded-xl px-3 py-1.5 bg-slate-50">
+                        </select>
+                    </div>
+                </div>
+            </div>
+
+            <div id="schedule-display-container" class="bg-white rounded-2xl border border-slate-200 p-4">
+            </div>
         </div>
-        <p class="text-[11px] text-slate-400">النص قابل للتعديل قبل الإرسال. لا تُضاف أرقام هواتف الموجهين إلى التقرير.</p>
-      </div>
-    </div>`);
-    const m = document.getElementById('wa-modal');
-    const regen = () => { m.dataset.fresh = '1'; document.getElementById('wa-text').value = buildWaReport({ gender: document.getElementById('wa-gender').value, unscheduled: document.getElementById('wa-unsch').checked, schoolId: m.dataset.school || '' }); checkLen(); };
-    const checkLen = () => {
-      const n = document.getElementById('wa-note'), len = encodeURIComponent(document.getElementById('wa-text').value).length;
-      n.classList.toggle('hidden', len < 5500);
-      n.textContent = 'التقرير طويل؛ قد لا يستقبله رابط واتساب كاملاً. استخدم «مشاركة» أو «نسخ» ثم الصقه في المحادثة.';
-    };
-    document.getElementById('wa-gender').addEventListener('change', regen);
-    document.getElementById('wa-unsch').addEventListener('change', regen);
-    document.getElementById('wa-text').addEventListener('input', checkLen);
-    document.getElementById('wa-phone').addEventListener('change', e => { try { localStorage.setItem(WA_KEY, e.target.value.replace(/\D/g, '')); } catch (x) { } });
-    m.addEventListener('click', async e => {
-      const b = e.target.closest('[data-wa]'); if (!b) return;
-      const act = b.dataset.wa, txt = document.getElementById('wa-text').value;
-      if (act === 'close') m.style.display = 'none';
-      else if (act === 'refresh') regen();
-      else if (act === 'send') {
-        const num = document.getElementById('wa-phone').value.replace(/\D/g, '');
-        window.open('https://wa.me/' + num + '?text=' + encodeURIComponent(txt), '_blank');
-      } else if (act === 'share') {
-        if (navigator.share) { try { await navigator.share({ text: txt }); } catch (x) { } } else showToast('المشاركة غير مدعومة هنا، استخدم النسخ', 'info');
-      } else if (act === 'copy') {
-        try { await navigator.clipboard.writeText(txt); showToast('تم نسخ التقرير'); }
-        catch (x) { const t = document.getElementById('wa-text'); t.select(); document.execCommand('copy'); showToast('تم نسخ التقرير'); }
-      }
-    });
-    m._regen = regen;
-  }
-  window.openWaReport = function (schoolId) {
-    ensureWaModal();
-    const m = document.getElementById('wa-modal');
-    m.dataset.school = schoolId || '';
-    document.getElementById('wa-gender').value = 'ALL';
-    document.getElementById('wa-unsch').checked = !!schoolId;
-    try { document.getElementById('wa-phone').value = localStorage.getItem(WA_KEY) || ''; } catch (x) { }
-    m._regen(); m.style.display = 'block';
-  };
 
-  // ---------- تصدير فريق الزيارة وإرسال التكليف للموجهين ----------
-  const CC = String(CFG.COUNTRY_CODE || '963');
-  const waNum = p => {
-    let d = String(p || '').replace(/\D/g, ''); if (!d) return '';
-    if (d.startsWith('00')) d = d.slice(2);
-    else if (d.startsWith('0')) d = CC + d.slice(1);
-    else if (!d.startsWith(CC) && d.length <= 9) d = CC + d;
-    return d.length >= 10 ? d : '';
-  };
-  function teamCtx() {
-    const sc = curSchool(); if (!sc) return null;
-    const date = document.getElementById('t-date').value, day = document.getElementById('t-day').value || dayOf(date);
-    const label = date ? fmtDate(date) : (day ? 'يوم ' + day : 'يُحدَّد لاحقاً');
-    return { sc, date, day: DAYS.slice(0, 5).includes(day) ? day : '', label, members: supervisors.filter(s => TEAM.has(s.id)) };
-  }
-  function supLessons(sup, sc, day) {
-    const mt = subjMatch(sup.specialty);
-    return (schedules[sc.id] || []).filter(r => mt(r.subject) && (!day || r.day === day))
-      .sort((a, b) => DAYS.indexOf(a.day) - DAYS.indexOf(b.day) || a.period - b.period);
-  }
-  const lessonLine = r => `• ح${r.period || '؟'} — ${r.grade} — ${r.subject}${r.teacher ? ' (' + r.teacher + ')' : ''}`;
-  function supMessage(sup, cx, o) {
-    const L = supLessons(sup, cx.sc, cx.day), st = supStats(sup, cx.sc);
-    const out = ['السلام عليكم ورحمة الله وبركاته', `الأستاذ/ة ${sup.name} المحترم/ة،`, '', '*📋 تكليف بزيارة إشرافية*',
-      `🏫 المدرسة: ${cx.sc.name}`, `📅 الموعد: ${cx.label}`];
-    if (o.time) out.push('⏰ الوقت: ' + o.time);
-    if (o.lessons) {
-      if (L.length) {
-        out.push('', `📚 حصص اختصاصك (${specLabel(sup)}) ${cx.day ? 'يوم ' + cx.day : 'خلال الأسبوع'}:`);
-        L.slice(0, 8).forEach(r => out.push((cx.day ? '' : r.day + ' ') + lessonLine(r)));
-        if (L.length > 8) out.push(`… و${L.length - 8} حصص أخرى`);
-      } else out.push('', '⚠️ لا توجد حصص لاختصاصك في هذا الموعد، يرجى التواصل مع الإدارة.');
-    }
-    const mates = cx.members.filter(m => m.id !== sup.id);
-    if (mates.length) out.push('', '👥 زملاؤك في الفريق: ' + mates.map(m => m.name + (m.specialty ? ' (' + specLabel(m) + ')' : '')).join('، '));
-    if (o.notes) out.push('', '📝 ' + o.notes);
-    out.push('', 'يرجى تأكيد الاستلام. بارك الله بجهودكم 🌹');
-    return out.join('\n');
-  }
-  function groupMessage(cx, o) {
-    const out = ['*📋 تكليف فريق زيارة إشرافية*', `🏫 المدرسة: ${cx.sc.name}`, `📅 الموعد: ${cx.label}`];
-    if (o.time) out.push('⏰ الوقت: ' + o.time);
-    out.push('', `👥 الفريق (${cx.members.length}):`);
-    cx.members.forEach((m, i) => {
-      const L = supLessons(m, cx.sc, cx.day);
-      out.push(`${NUM[i] || (i + 1) + '.'} *${m.name}* — ${specLabel(m)}` + (o.lessons ? (L.length ? ` — ${L.length} حصة${cx.day ? '' : ' أسبوعياً'}` : ' — ⚠️ لا حصص') : ''));
-    });
-    if (o.notes) out.push('', '📝 ' + o.notes);
-    out.push('', '_أُعدّ عبر منظومة الإشراف_');
-    return out.join('\n');
-  }
-  function xlsxDownload(sheets, file) {
-    if (typeof XLSX === 'undefined') return showToast('مكتبة Excel لم تُحمَّل بعد، أعد المحاولة', 'error');
-    const wb = XLSX.utils.book_new();
-    sheets.forEach(([name, rows, w]) => {
-      const ws = XLSX.utils.json_to_sheet(rows.length ? rows : [{ 'ملاحظة': 'لا بيانات' }]);
-      ws['!cols'] = (w || []).map(x => ({ wch: x })); ws['!views'] = [{ RTL: true }];
-      XLSX.utils.book_append_sheet(wb, ws, name.slice(0, 31));
-    });
-    wb.Workbook = { Views: [{ RTL: true }] };
-    XLSX.writeFile(wb, file);
-  }
-  function entryRows(sc, members, day, label) {
-    const team = [], les = [];
-    members.forEach(m => {
-      const st = supStats(m, sc), L = supLessons(m, sc, day);
-      team.push({ 'المدرسة': sc.name, 'موعد الزيارة': label, 'الموجه': m.name, 'الاختصاص': specLabel(m), 'الهاتف': m.phone === '-' ? '' : m.phone,
-        'حصصه أسبوعياً': st.weekly, 'حصصه يوم الزيارة': day ? L.length : '', 'الحالة': st.warn || 'متاح' });
-      L.forEach(r => les.push({ 'المدرسة': sc.name, 'الموجه': m.name, 'اليوم': r.day, 'الحصة': r.period, 'الصف': r.grade, 'المادة': r.subject, 'المدرس': r.teacher }));
-    });
-    return { team, les };
-  }
-  window.exportTeamXlsx = function (all) {
-    if (!all) {
-      const cx = teamCtx(); if (!cx || !cx.members.length) return showToast('اختر أعضاء الفريق أولاً', 'error');
-      const { team, les } = entryRows(cx.sc, cx.members, cx.day, cx.label);
-      return xlsxDownload([['الفريق', team, [32, 18, 26, 22, 14, 12, 14, 36]], ['حصص الزيارة', les, [32, 26, 10, 8, 24, 20, 24]]], 'فريق_زيارة_' + cx.sc.name.replace(/\s+/g, '_') + '.xlsx');
-    }
-    const T = [], Ls = [];
-    distributionResults.filter(d => d.supervisors && d.supervisors.length).forEach(d => {
-      const sc = schools.find(s => s.id === d.schoolId); if (!sc) return;
-      const v = d.visitDate || '', day = DAYS.includes(v) ? v : dayOf(v), label = v ? (DAYS.includes(v) ? 'يوم ' + v : fmtDate(v)) : 'غير محدد';
-      const mem = d.supervisors.map(x => supervisors.find(s => s.id === x.id)).filter(Boolean);
-      const r = entryRows(sc, mem, DAYS.slice(0, 5).includes(day) ? day : '', label); T.push(...r.team); Ls.push(...r.les);
-    });
-    if (!T.length) return showToast('لا توجد فرق محفوظة للتصدير', 'error');
-    const bySup = {}; T.forEach(r => { (bySup[r['الموجه']] = bySup[r['الموجه']] || []).push(r['المدرسة'] + ' (' + r['موعد الزيارة'] + ')'); });
-    const sum = Object.entries(bySup).map(([k, v]) => ({ 'الموجه': k, 'عدد الزيارات': v.length, 'المدارس': v.join(' | ') }));
-    xlsxDownload([['كل الفرق', T, [32, 18, 26, 22, 14, 12, 14, 36]], ['حصص الزيارات', Ls, [32, 26, 10, 8, 24, 20, 24]], ['ملخص حسب الموجه', sum, [26, 12, 80]]], 'خطة_الزيارات_كل_الفرق.xlsx');
-  };
-  window.exportTeamIcs = function () {
-    const cx = teamCtx(); if (!cx) return;
-    if (!cx.date) return showToast('حدد «تاريخ الزيارة» لإنشاء ملف التقويم', 'error');
-    const d = cx.date.replace(/-/g, ''), nx = new Date(cx.date + 'T00:00:00'); nx.setDate(nx.getDate() + 1);
-    const d2 = nx.getFullYear() + String(nx.getMonth() + 1).padStart(2, '0') + String(nx.getDate()).padStart(2, '0');
-    const t = v => String(v).replace(/[\\;,]/g, m => '\\' + m).replace(/\n/g, '\\n');
-    const ics = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Supervision//AR', 'BEGIN:VEVENT', 'UID:' + cx.sc.id + '-' + d + '@supervision',
-      'DTSTAMP:' + new Date().toISOString().replace(/[-:]/g, '').slice(0, 15) + 'Z', 'DTSTART;VALUE=DATE:' + d, 'DTEND;VALUE=DATE:' + d2,
-      'SUMMARY:' + t('زيارة إشرافية - ' + cx.sc.name), 'DESCRIPTION:' + t('الفريق: ' + cx.members.map(m => m.name).join('، ')), 'END:VEVENT', 'END:VCALENDAR'].join('\r\n');
-    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([ics], { type: 'text/calendar;charset=utf-8' }));
-    a.download = 'زيارة_' + cx.sc.name.replace(/\s+/g, '_') + '.ics'; document.body.appendChild(a); a.click(); a.remove();
-  };
-  function ensureTxModal() {
-    if (document.getElementById('tx-modal')) return;
-    document.body.insertAdjacentHTML('beforeend', `
-    <div id="tx-modal" class="fixed inset-0 z-50 no-print" style="display:none">
-      <div class="absolute inset-0 bg-slate-900/50" data-tx="close"></div>
-      <div class="absolute bottom-0 inset-x-0 md:inset-x-auto md:left-1/2 md:-translate-x-1/2 md:bottom-auto md:top-6 md:w-[620px] bg-white rounded-t-3xl md:rounded-3xl p-4 space-y-3 max-h-[92vh] overflow-y-auto" style="padding-bottom:calc(16px + env(safe-area-inset-bottom))">
-        <div class="flex items-center justify-between">
-          <h3 class="text-base font-bold text-slate-900"><i class="fa-brands fa-whatsapp text-emerald-600 ml-1"></i>إرسال التكليف وتصدير الفريق</h3>
-          <button data-tx="close" class="w-9 h-9 rounded-xl bg-slate-100 text-slate-600"><i class="fa-solid fa-xmark"></i></button>
+        <!-- 5. تبويب الاستيراد والتصدير مع Excel -->
+        <div id="view-import" class="hidden space-y-6">
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-5">
+                <div class="bg-white rounded-2xl border border-slate-200 p-5 shadow-xs space-y-3">
+                    <div class="w-10 h-10 rounded-xl bg-blue-50 text-blue-600 flex items-center justify-center text-lg"><i class="fa-solid fa-shield-halved"></i></div>
+                    <h4 class="text-sm font-bold text-slate-800">نسخة احتياطية لخطة الزيارات</h4>
+                    <p class="text-xs text-slate-500">خطة الزيارات محفوظة في هذا المتصفح فقط. نزّل نسخة احتياطية بانتظام، واستعدها عند تغيير الجهاز أو مسح بيانات المتصفح.</p>
+                    <div class="flex gap-2 pt-1">
+                        <button onclick="exportBackup()" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold py-2.5 rounded-xl transition"><i class="fa-solid fa-download ml-1"></i>تنزيل نسخة احتياطية</button>
+                        <button onclick="document.getElementById('file-backup').click()" class="flex-1 border border-slate-200 hover:bg-slate-50 text-slate-700 text-xs font-bold py-2.5 rounded-xl transition"><i class="fa-solid fa-upload ml-1"></i>استعادة نسخة</button>
+                        <input type="file" id="file-backup" accept=".json,application/json" class="hidden" onchange="restoreBackup(this)">
+                    </div>
+                </div>
+                <div class="bg-white rounded-2xl border border-rose-200 p-5 shadow-xs space-y-3">
+                    <div class="w-10 h-10 rounded-xl bg-rose-50 text-rose-600 flex items-center justify-center text-lg"><i class="fa-solid fa-triangle-exclamation"></i></div>
+                    <h4 class="text-sm font-bold text-slate-800">تصفير خطة الزيارات</h4>
+                    <p class="text-xs text-slate-500">يفرّغ جدول الزيارات والفرق المحددة. تُنزَّل نسخة احتياطية تلقائياً قبل التصفير.</p>
+                    <button onclick="confirmResetAll()" class="w-full bg-rose-50 border border-rose-200 hover:bg-rose-100 text-rose-700 text-xs font-bold py-2.5 rounded-xl transition"><i class="fa-solid fa-rotate-left ml-1"></i>تصفير الخطة</button>
+                </div>
+            </div>
+
+            <!-- بطاقة التصدير الشامل -->
+            <div class="bg-gradient-to-br from-emerald-800 to-teal-900 text-white p-6 rounded-2xl flex flex-col md:flex-row items-center justify-between gap-4 shadow-lg">
+                <div class="space-y-1">
+                    <h3 class="text-base font-bold flex items-center gap-2">
+                        <i class="fa-solid fa-file-excel text-emerald-300"></i>
+                        <span>تصدير المصنف الإشرافي المتكامل (Workbook)</span>
+                    </h3>
+                    <p class="text-xs text-emerald-100">يتضمن: جدول الزيارات الدورية، قائمة الموجهين ونطاق مسؤوليتهم العامة، وسجل المدارس وحصصها.</p>
+                </div>
+                <button onclick="exportComprehensiveExcel()" class="bg-white text-emerald-900 hover:bg-emerald-50 px-5 py-3 rounded-xl text-xs sm:text-sm font-bold shadow-md transition whitespace-nowrap flex items-center gap-2">
+                    <i class="fa-solid fa-cloud-arrow-down text-emerald-700"></i>
+                    <span>تحميل ملف Excel المعتمد</span>
+                </button>
+            </div>
         </div>
-        <div id="tx-head" class="text-xs font-bold text-slate-700 bg-slate-50 rounded-xl px-3 py-2"></div>
-        <div class="grid grid-cols-2 gap-2">
-          <input id="tx-time" placeholder="وقت الوصول (اختياري) مثل 8:00 صباحاً" class="text-sm border border-slate-200 rounded-xl px-3 py-2 bg-slate-50">
-          <label class="flex items-center gap-2 text-xs font-bold text-slate-600 bg-slate-50 border border-slate-200 rounded-xl px-3"><input type="checkbox" id="tx-les" checked> إدراج حصص كل موجه</label>
+
+        <!-- تقرير الطباعة الرسمي -->
+        <div id="print-official-report" class="print-only hidden p-4 bg-white">
+            <div class="text-center border-b-2 border-slate-900 pb-4 mb-4">
+                <h2 class="text-xl font-bold">مديرية التعليم الشرعي - دائرة الإشراف والتوجيه التربوي</h2>
+                <h3 class="text-base font-semibold mt-1">خطة الإشراف الشامل وجدولة الزيارات الميدانية</h3>
+                <p class="text-xs text-slate-600 mt-1" id="print-date-label"></p>
+                <p class="text-xs font-bold text-slate-800 mt-1">نظام المسؤولية العامة: الموجهون الذكور مسؤولون عن كافة مدارس البنين، والموجهات مسؤولات عن كافة مدارس البنات</p>
+            </div>
+            <div id="print-report-body"></div>
         </div>
-        <textarea id="tx-notes" rows="2" placeholder="ملاحظات للموجهين (محور الزيارة، مكان التجمع، ما يُحضَر…)" class="w-full text-sm border border-slate-200 rounded-xl p-3 bg-slate-50"></textarea>
-        <div class="text-xs font-bold text-slate-600">إرسال فردي (رسالة مخصصة لكل موجه):</div>
-        <div id="tx-list" class="space-y-2"></div>
-        <div class="text-xs font-bold text-slate-600 pt-1">رسالة جماعية للمجموعة (قابلة للتعديل):</div>
-        <textarea id="tx-group" rows="8" class="w-full text-sm border border-slate-200 rounded-2xl p-3 bg-slate-50 leading-relaxed" style="-webkit-user-select:text;user-select:text"></textarea>
-        <div class="grid grid-cols-3 gap-2">
-          <button data-tx="gshare" class="bg-emerald-600 text-white text-xs font-bold rounded-xl py-2.5"><i class="fa-solid fa-share-nodes ml-1"></i>مشاركة للمجموعة</button>
-          <button data-tx="gcopy" class="bg-slate-100 text-slate-700 text-xs font-bold rounded-xl py-2.5"><i class="fa-regular fa-copy ml-1"></i>نسخ</button>
-          <button data-tx="ics" class="bg-slate-100 text-slate-700 text-xs font-bold rounded-xl py-2.5"><i class="fa-regular fa-calendar-plus ml-1"></i>ملف تقويم</button>
-          <button data-tx="xl" class="bg-slate-100 text-slate-700 text-xs font-bold rounded-xl py-2.5"><i class="fa-solid fa-file-excel ml-1"></i>Excel لهذا الفريق</button>
-          <button data-tx="xlall" class="col-span-2 bg-slate-100 text-slate-700 text-xs font-bold rounded-xl py-2.5"><i class="fa-solid fa-file-excel ml-1"></i>Excel لكل الفرق المحفوظة (+ملخص لكل موجه)</button>
+
+    </main>
+
+    <!-- Modal: تفاصيل المدارس التابعة للموجه -->
+    <div id="modal-sup-scope" class="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center hidden p-4 no-print">
+        <div class="bg-white rounded-3xl shadow-xl max-w-2xl w-full p-6 space-y-4 max-h-[90vh] flex flex-col">
+            <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+                <div>
+                    <h3 class="font-bold text-slate-800 text-base" id="modal-scope-title">نطاق المدارس التابعة للموجه</h3>
+                    <p class="text-xs text-slate-500" id="modal-scope-subtitle"></p>
+                </div>
+                <button onclick="closeScopeModal()" class="text-slate-400 hover:text-slate-600 text-lg">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+
+            <div class="overflow-y-auto flex-1 custom-scrollbar">
+                <ul id="modal-scope-list" class="space-y-2 text-xs divide-y divide-slate-100">
+                </ul>
+            </div>
+
+            <div class="pt-3 border-t border-slate-100 flex justify-end">
+                <button onclick="closeScopeModal()" class="px-5 py-2 text-xs font-bold bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl transition">إغلاق</button>
+            </div>
         </div>
-        <p class="text-[11px] text-slate-400">يُنشأ رقم واتساب من رقم الهاتف تلقائياً (رمز الدولة ${CC} قابل للتغيير في config.js). الموجه بلا رقم صحيح يظهر معطلاً.</p>
-      </div>
-    </div>`);
-    const m = document.getElementById('tx-modal'), sent = new Set();
-    const opts = () => ({ time: document.getElementById('tx-time').value.trim(), notes: document.getElementById('tx-notes').value.trim(), lessons: document.getElementById('tx-les').checked });
-    const render = () => {
-      const cx = teamCtx(); if (!cx) return; const o = opts();
-      document.getElementById('tx-head').textContent = `${cx.sc.name} — ${cx.label} — ${cx.members.length} أعضاء`;
-      document.getElementById('tx-list').innerHTML = cx.members.map(s => {
-        const num = waNum(s.phone), L = supLessons(s, cx.sc, cx.day).length, done = sent.has(s.id);
-        return `<div class="flex items-center gap-2 border border-slate-200 rounded-xl px-3 py-2"><div class="flex-1 min-w-0"><div class="text-sm font-bold truncate">${esc(s.name)} ${done ? '<span class="text-emerald-600">✓</span>' : ''}</div><div class="text-[11px] text-slate-500">${esc(specLabel(s))} · ${cx.day ? L + ' حصة يوم الزيارة' : 'بلا يوم محدد'}${num ? '' : ' · <span class="text-rose-600">لا رقم صالح</span>'}</div></div>
-          <button data-tx="send" data-id="${s.id}" ${num ? '' : 'disabled'} class="${num ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-400'} text-xs font-bold rounded-lg px-3 py-2"><i class="fa-brands fa-whatsapp ml-1"></i>إرسال</button>
-          <button data-tx="copy1" data-id="${s.id}" class="bg-slate-100 text-slate-700 text-xs rounded-lg px-2.5 py-2"><i class="fa-regular fa-copy"></i></button></div>`;
-      }).join('') || '<div class="text-xs text-slate-400 p-2">لم يُختر أحد في الفريق.</div>';
-      document.getElementById('tx-group').value = groupMessage(cx, o);
-    };
-    ['tx-time', 'tx-notes', 'tx-les'].forEach(id => document.getElementById(id).addEventListener('input', render));
-    m._render = render;
-    const copy = async t => { try { await navigator.clipboard.writeText(t); } catch (x) { const a = document.createElement('textarea'); a.value = t; document.body.appendChild(a); a.select(); document.execCommand('copy'); a.remove(); } showToast('تم النسخ'); };
-    m.addEventListener('click', async e => {
-      const b = e.target.closest('[data-tx]'); if (!b) return; const act = b.dataset.tx, cx = teamCtx(), o = opts();
-      const sup = cx && cx.members.find(s => s.id === b.dataset.id);
-      if (act === 'close') m.style.display = 'none';
-      else if (act === 'send' && sup) { window.open('https://wa.me/' + waNum(sup.phone) + '?text=' + encodeURIComponent(supMessage(sup, cx, o)), '_blank'); sent.add(sup.id); render(); }
-      else if (act === 'copy1' && sup) copy(supMessage(sup, cx, o));
-      else if (act === 'gcopy') copy(document.getElementById('tx-group').value);
-      else if (act === 'gshare') { const t = document.getElementById('tx-group').value; if (navigator.share) { try { await navigator.share({ text: t }); } catch (x) { } } else window.open('https://wa.me/?text=' + encodeURIComponent(t), '_blank'); }
-      else if (act === 'ics') exportTeamIcs();
-      else if (act === 'xl') exportTeamXlsx(false);
-      else if (act === 'xlall') exportTeamXlsx(true);
-    });
-  }
-  window.openTeamShare = function () {
-    const cx = teamCtx(); if (!cx) return;
-    if (!cx.members.length) return showToast('اختر أعضاء الفريق أولاً', 'error');
-    ensureTxModal(); const m = document.getElementById('tx-modal'); m._render(); m.style.display = 'block';
-  };
+    </div>
 
-  // ---------- شريط التنقل السفلي للجوال ----------
-  function injectBottomNav() {
-    const items = [['distribution', 'fa-calendar-days', 'الزيارات'], ['team', 'fa-people-group', 'الفريق'], ['filter', 'fa-filter', 'الفلترة'], ['schedules', 'fa-table-cells', 'الحصص']];
-    document.body.insertAdjacentHTML('beforeend', `
-    <nav id="bottom-nav" class="md:hidden fixed bottom-0 inset-x-0 z-40 grid grid-cols-5 no-print">
-      ${[['distribution', 'fa-calendar-days', 'الزيارات'], ['filter', 'fa-filter', 'الفلترة']].map(([v, ic, l]) => `<button data-nav="${v}" class="flex flex-col items-center justify-center gap-0.5"><i class="fa-solid ${ic} text-lg"></i><span class="text-[11px] font-bold">${l}</span></button>`).join('')}
-      <button data-nav="team" aria-label="تكوين فريق"><i class="fa-solid fa-plus text-2xl"></i></button>
-      ${[['schedules', 'fa-table-cells', 'الحصص'], ['more', 'fa-ellipsis', 'المزيد']].map(([v, ic, l]) => `<button data-nav="${v}" class="flex flex-col items-center justify-center gap-0.5"><i class="fa-solid ${ic} text-lg"></i><span class="text-[11px] font-bold">${l}</span></button>`).join('')}
-    </nav>
-    <div id="more-sheet" class="md:hidden fixed inset-0 z-50 hidden">
-      <div class="absolute inset-0 bg-slate-900/50" data-nav="close"></div>
-      <div class="absolute bottom-0 inset-x-0 bg-white rounded-t-3xl p-4 space-y-2" style="padding-bottom:calc(16px + env(safe-area-inset-bottom))">
-        <div class="w-10 h-1.5 bg-slate-300 rounded-full mx-auto mb-2"></div>
-        ${[['supervisors', 'fa-user-tie', 'كادر الموجهين'], ['schools', 'fa-mosque', 'سجل المدارس'], ['import', 'fa-cloud-arrow-down', 'تصدير ونسخ احتياطي']].map(([v, ic, l]) =>
-          `<button data-nav="${v}" class="w-full flex items-center gap-3 bg-slate-50 rounded-2xl px-4 py-3.5 text-sm font-bold text-slate-700"><i class="fa-solid ${ic} text-emerald-600 w-5 text-center"></i>${l}</button>`).join('')}
-        <button data-nav="wa" class="w-full flex items-center gap-3 bg-slate-50 rounded-2xl px-4 py-3.5 text-sm font-bold text-slate-700"><i class="fa-brands fa-whatsapp text-emerald-600 w-5 text-center"></i>تقرير واتساب</button>
-        <button data-nav="hero" class="w-full flex items-center gap-3 bg-slate-50 rounded-2xl px-4 py-3.5 text-sm font-bold text-slate-700"><i class="fa-solid fa-gear text-emerald-600 w-5 text-center"></i>إعدادات الجولة والجدولة التلقائية</button>
-      </div>
-    </div>`);
-    const sheet = document.getElementById('more-sheet');
-    // ملاحظة أداء: Tailwind CDN يعيد بناء الأنماط عند كل تغيير في class،
-    // لذلك على الجوال نغيّر style/attribute فقط (لا يراقبها) بدل classList.
-    const hide = el => el && el.style.setProperty('display', 'none', 'important');
-    const show = (el, d) => el && (d ? el.style.setProperty('display', d, 'important') : el.style.removeProperty('display'));
-    const mob = () => window.matchMedia('(max-width: 767px)').matches;
-    const VIEWS = ['distribution', 'supervisors', 'schools', 'schedules', 'team', 'filter', 'import'];
-    const sheetOpen = on => on ? show(sheet, 'block') : hide(sheet);
-    hide(sheet);
-    document.body.addEventListener('click', e => {
-      const b = e.target.closest('[data-nav]'); if (!b) return;
-      const v = b.dataset.nav;
-      if (v === 'more') sheetOpen(true);
-      else if (v === 'close') sheetOpen(false);
-      else if (v === 'wa') { sheetOpen(false); openWaReport(); }
-      else if (v === 'hero') { document.getElementById('app-hero').classList.toggle('mobile-show'); sheetOpen(false); window.scrollTo({ top: 0, behavior: 'smooth' }); }
-      else { sheetOpen(false); v === 'team' ? openTeamBuilder() : switchView(v); }
-    });
-    const _sv = window.switchView;
-    window.switchView = function (v) {
-      if (mob()) {
-        VIEWS.forEach(x => { const el = document.getElementById('view-' + x); if (el) x === v ? show(el, 'block') : hide(el); });
-      } else { _sv(v); }
-      window.scrollTo(0, 0);
-      const home = document.getElementById('m-home'), stats = document.getElementById('app-stats');
-      v === 'distribution' ? show(home) : hide(home);
-      if (mob()) { v === 'distribution' ? show(stats) : hide(stats); }
-      document.querySelectorAll('#bottom-nav [data-nav]').forEach(b => {
-        const on = b.dataset.nav === v || (b.dataset.nav === 'more' && ['supervisors', 'schools', 'import'].includes(v));
-        on ? b.setAttribute('data-active', '1') : b.removeAttribute('data-active');
-      });
-    };
-    switchView('distribution');
-  }
+    <!-- Modal: إضافة وتعديل موجه -->
+    <div id="modal-supervisor" class="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center hidden p-4 no-print">
+        <div class="bg-white rounded-3xl shadow-xl max-w-md w-full p-6 space-y-4">
+            <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+                <h3 class="font-bold text-slate-800 text-base" id="modal-sup-title">إضافة موجه جديد</h3>
+                <button onclick="closeSupervisorModal()" class="text-slate-400 hover:text-slate-600 text-lg">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
 
-  // ---------- الصفحة الرئيسية للجوال ----------
-  function buildMobileHome() {
-    document.querySelector('main').insertAdjacentHTML('afterbegin', `
-    <div id="m-home" class="md:hidden space-y-4 no-print">
-      <input id="m-search" placeholder="🔍 ابحث عن مدرسة أو مدرّس أو مادة..." class="w-full px-4 py-3 text-sm shadow-sm">
-      <div id="m-hero"></div>
-      <div id="m-dots" class="m-dots flex justify-center gap-1.5"></div>
-      <div class="flex items-center justify-between pt-1"><h2 class="m-title">الإنجازات والمؤشرات</h2><button class="m-pill" onclick="switchView('filter')">فلترة الدوام</button></div>
-    </div>`);
-    let t; document.getElementById('m-search').addEventListener('input', e => {
-      clearTimeout(t); t = setTimeout(() => {
-        const v = e.target.value.trim(); if (!v) return;
-        switchView('filter'); document.getElementById('f-text').value = v; applyFilters();
-      }, 400);
-    });
-    const hero = document.getElementById('m-hero');
-    let raf = 0;
-    hero.addEventListener('scroll', () => {
-      if (raf) return;
-      raf = requestAnimationFrame(() => {
-        raf = 0;
-        const i = Math.round(Math.abs(hero.scrollLeft) / hero.clientWidth);
-        document.querySelectorAll('#m-dots span').forEach((d, k) => k === i ? d.setAttribute('data-on', '1') : d.removeAttribute('data-on'));
-      });
-    }, { passive: true });
-    refreshHome();
-  }
-  function refreshHome() {
-    const hero = document.getElementById('m-hero'); if (!hero) return;
-    const sched = distributionResults.filter(d => d.supervisors && d.supervisors.length).length;
-    const warn = distributionResults.filter(d => (d.supervisors || []).some(s => s.warn)).length;
-    const periods = Object.values(schedules).reduce((a, l) => a + l.length, 0);
-    const slide = (eyebrow, title, sub, btn, fn) => `<div class="m-slide"><div><small>${eyebrow}</small><h3>${title}</h3><p>${sub}</p></div><div><button class="m-gold-btn" onclick="${fn}">${btn}</button></div></div>`;
-    hero.innerHTML =
-      slide('خطة الزيارات', `المجدولة: ${sched} من ${schools.length} مدرسة`, warn ? `فرق عليها تنبيهات: ${warn}` : 'لا تنبيهات على الفرق', 'عرض جدول الزيارات', "switchView('distribution')") +
-      slide('فريق الزيارة', 'حدّد فريقك بنفسك', 'حسب حصص المدرسة واليوم المتاحين', 'تكوين فريق', 'openTeamBuilder()') +
-      slide('برنامج الدوام', `${periods.toLocaleString('ar')} حصة`, `${schools.length} مدرسة · ${supervisors.length} موجه`, 'فلترة الدوام', "switchView('filter')");
-    document.getElementById('m-dots').innerHTML = '<span data-on="1"></span><span></span><span></span>';
-  }
-  const _ra = window.renderAllViews;
-  window.renderAllViews = function () { _ra(); refreshHome(); };
+            <form id="form-supervisor" onsubmit="handleSupervisorFormSubmit(event)" class="space-y-3">
+                <input type="hidden" id="modal-sup-id">
+                
+                <div>
+                    <label class="block text-xs font-semibold text-slate-700 mb-1">اسم الموجه الرباعي</label>
+                    <input type="text" id="modal-sup-name" required placeholder="مثال: الشيخ أ. أحمد عبد الله الحلبي" class="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                </div>
 
-  // ---------- بطاقات بدل الجداول على الجوال (بدون تمرير أفقي) ----------
-  function mobileCards(tbodyId) {
-    const tb = document.getElementById(tbodyId); if (!tb) return;
-    const table = tb.closest('table'), wrap = table.parentElement.classList.contains('overflow-x-auto') ? table.parentElement.parentElement : table.parentElement;
-    let box = document.getElementById(tbodyId + '-m');
-    if (!box) { wrap.insertAdjacentHTML('beforebegin', `<div id="${tbodyId}-m" class="md:hidden space-y-2"></div>`); box = document.getElementById(tbodyId + '-m'); wrap.classList.add('hidden', 'md:block'); }
-    const heads = [...table.querySelectorAll('thead th')].map(t => t.textContent.trim());
-    box.innerHTML = [...tb.rows].map(tr => {
-      const cells = [...tr.cells];
-      if (cells.length === 1) return `<div class="bg-white rounded-2xl border border-slate-200 p-6 text-center text-xs text-slate-400">${cells[0].innerHTML}</div>`;
-      let title = '', acts = '', rows = '';
-      cells.forEach((td, i) => {
-        if (heads[i] === '#') return;
-        if (td.querySelector('button')) { acts += td.innerHTML; return; }
-        if (!title) { title = td.innerHTML; return; }
-        if (!td.textContent.trim()) return;
-        rows += `<div class="flex items-start justify-between gap-3 text-xs py-1.5 border-t border-slate-100"><span class="text-slate-500 shrink-0">${esc(heads[i])}</span><span class="text-slate-800 font-semibold text-left">${td.innerHTML}</span></div>`;
-      });
-      return `<div class="bg-white rounded-2xl border border-slate-200 p-3.5 shadow-xs"><div class="text-sm font-bold text-slate-900 mb-1">${title}</div>${rows}${acts ? `<div class="flex flex-wrap gap-2 justify-end mt-2 pt-2 border-t border-slate-100 text-base">${acts}</div>` : ''}</div>`;
-    }).join('');
-  }
-  [['renderSupervisorsTable', 'supervisors-table-body'], ['renderSchoolsTable', 'schools-table-body']].forEach(([fn, id]) => {
-    const o = window[fn]; window[fn] = function () { o.apply(this, arguments); mobileCards(id); };
-  });
+                <div>
+                    <label class="block text-xs font-semibold text-slate-700 mb-1">الجنس ونطاق الإشراف التلقائي</label>
+                    <select id="modal-sup-gender" required class="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                        <option value="ذكر">ذكر (مسؤول عن كافة مدارس الذكور تلقائياً)</option>
+                        <option value="أنثى">أنثى (مسؤولة عن كافة مدارس الإناث تلقائياً)</option>
+                    </select>
+                </div>
 
-  let SM_DAY = 'الأحد';
-  function renderScheduleMobile() {
-    const box = document.getElementById('schedule-mobile'); if (!box) return;
-    const id = document.getElementById('schedule-school-selector').value, list = schedules[id] || [];
-    if (!document.getElementById('sm-body')) {
-      box.innerHTML = `<div class="flex gap-1.5 overflow-x-auto pb-1" id="sm-days"></div><select id="sm-grade" class="w-full text-sm px-3 py-2"></select><div id="sm-body" class="space-y-3"></div>`;
-      document.getElementById('sm-days').addEventListener('click', e => { const b = e.target.closest('[data-day]'); if (b) { SM_DAY = b.dataset.day; renderScheduleMobile(); } });
-      document.getElementById('sm-grade').addEventListener('change', renderScheduleMobile);
-    }
-    document.getElementById('sm-days').innerHTML = DAYS.slice(0, 5).map(d => `<button data-day="${d}" class="shrink-0 px-4 py-2 rounded-xl text-xs font-bold ${d === SM_DAY ? 'bg-emerald-600 text-white' : 'bg-white border border-slate-200 text-slate-600'}">${d}</button>`).join('');
-    const sel = document.getElementById('sm-grade'), keep = sel.value, grades = [...new Set(list.map(x => x.grade))];
-    sel.innerHTML = '<option value="">كل الصفوف</option>' + grades.map(g => `<option>${esc(g)}</option>`).join('');
-    if (grades.includes(keep)) sel.value = keep;
-    const gs = sel.value ? [sel.value] : grades;
-    document.getElementById('sm-body').innerHTML = gs.map(g => {
-      const rows = [1, 2, 3, 4, 5, 6, 7].map(p => {
-        const it = list.find(x => x.grade === g && normalizeDayName(x.day) === normalizeDayName(SM_DAY) && parseInt(x.period) === p);
-        return `<div class="flex items-center gap-3 py-2 ${p > 1 ? 'border-t border-slate-100' : ''}"><span class="w-8 h-8 shrink-0 rounded-xl bg-emerald-600 text-white text-xs font-bold flex items-center justify-center">${p}</span>${it ? `<div class="min-w-0"><div class="text-sm font-bold text-slate-900">${esc(it.subject)}</div>${it.teacher ? `<div class="text-[11px] text-slate-500">${esc(it.teacher)}</div>` : ''}</div>` : '<span class="text-xs text-slate-300">—</span>'}</div>`;
-      }).join('');
-      return `<div class="bg-white rounded-2xl border border-slate-200 p-3.5 shadow-xs"><div class="text-sm font-bold text-emerald-800 mb-1"><i class="fa-solid fa-graduation-cap ml-1"></i>${esc(g)}</div>${rows}</div>`;
-    }).join('') || '<div class="p-8 text-center text-slate-400 text-xs">لا يوجد جدول لهذه المدرسة</div>';
-  }
-  const IS_MOBILE = () => window.matchMedia('(max-width: 767px)').matches;
-  const _rs = window.renderSchoolScheduleView;
-  // على الجوال لا نبني جدول سطح المكتب المخفي (يُبطئ الصفحة)
-  window.renderSchoolScheduleView = function () { if (!IS_MOBILE()) _rs(); renderScheduleMobile(); };
-  // تقرير الطباعة لا يُبنى على الجوال إلا عند الطباعة فعلاً
-  const _pp = window.prepareOfficialPrintReport;
-  if (typeof _pp === 'function') {
-    window.prepareOfficialPrintReport = function () { if (!IS_MOBILE()) _pp(); };
-    window.addEventListener('beforeprint', () => { try { _pp(); } catch (e) { console.error(e); } });
-  }
-  function injectMobileTables() {
-    const c = document.getElementById('schedule-display-container');
-    c.classList.add('hidden', 'md:block');
-    c.insertAdjacentHTML('afterend', '<div id="schedule-mobile" class="md:hidden space-y-3"></div>');
-    renderScheduleMobile(); mobileCards('supervisors-table-body'); mobileCards('schools-table-body');
-  }
+                <div>
+                    <label class="block text-xs font-semibold text-slate-700 mb-1">التخصص الأساسي</label>
+                    <select id="modal-sup-specialty" required class="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                        <option value="القرآن الكريم وعلومه">القرآن الكريم وعلومه</option>
+                        <option value="الفقه وأصوله">الفقه وأصوله</option>
+                        <option value="الحديث الشريف والسيرة">الحديث الشريف والسيرة</option>
+                        <option value="العقيدة الإسلامية">العقيدة الإسلامية</option>
+                        <option value="اللغة العربية وآدابها">اللغة العربية وآدابها</option>
+                        <option value="العلوم الطبيعية">العلوم الطبيعية</option>
+                        <option value="الرياضيات">الرياضيات</option>
+                        <option value="اللغة الإنجليزية">اللغة الإنجليزية</option>
+                        <option value="التاريخ والحضارة">التاريخ والحضارة</option>
+                    </select>
+                </div>
 
-  // ---------- الإقلاع ----------
-  window.addEventListener('DOMContentLoaded', async () => {
-    injectTab(); injectTeamTab(); injectBottomNav(); buildMobileHome(); injectMobileTables();
-    if (!CFG.SCHEDULE_CSV || !CFG.SUPERVISORS_CSV) return;
-    window.matchMedia('(max-width: 767px)').addEventListener('change', () => { try { renderFilter(); } catch (e) { } });
-    // 1) عرض آخر بيانات محفوظة فوراً  2) جلب الجديد في الخلفية وتحديث الشاشة إن تغيّر
-    const cached = readCache(); let shownCache = false;
-    if (cached) {
-      try { buildData(cached); renderAllViews(); shownCache = true; } catch (e) { console.error(e); }
-    }
-    try {
-      const fresh = await fetchBoth();
-      if (!shownCache || fresh.sup !== cached.sup || fresh.sch !== cached.sch) {
-        buildData(fresh); renderAllViews(); saveCache(fresh);
-        showToast(shownCache ? 'تم تحديث البيانات' : 'تم تحميل البيانات من Google Sheets');
-      }
-    } catch (e) {
-      console.error(e);
-      showToast(shownCache ? 'تعذّر التحديث، تُعرض آخر بيانات محفوظة' : 'تعذر تحميل البيانات: ' + e.message, 'error');
-    }
-  });
-})();
+                <div>
+                    <label class="block text-xs font-semibold text-slate-700 mb-1">رقم الهاتف / الواتساب</label>
+                    <input type="text" id="modal-sup-phone" placeholder="05XXXXXXXX" class="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                </div>
+
+                <div class="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+                    <button type="button" onclick="closeSupervisorModal()" class="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition">إلغاء</button>
+                    <button type="submit" class="px-5 py-2 text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl shadow-xs transition">حفظ البيانات</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- Modal: إضافة مدرسة -->
+    <div id="modal-school" class="fixed inset-0 z-50 bg-slate-900/60 backdrop-blur-xs flex items-center justify-center hidden p-4 no-print">
+        <div class="bg-white rounded-3xl shadow-xl max-w-md w-full p-6 space-y-4">
+            <div class="flex items-center justify-between pb-3 border-b border-slate-100">
+                <h3 class="font-bold text-slate-800 text-base" id="modal-sch-title">إضافة مدرسة شرعية جديدة</h3>
+                <button onclick="closeSchoolModal()" class="text-slate-400 hover:text-slate-600 text-lg">
+                    <i class="fa-solid fa-xmark"></i>
+                </button>
+            </div>
+
+            <form id="form-school" onsubmit="handleSchoolFormSubmit(event)" class="space-y-3">
+                <input type="hidden" id="modal-sch-id">
+                
+                <div>
+                    <label class="block text-xs font-semibold text-slate-700 mb-1">اسم المدرسة أو المعهد الشرعي</label>
+                    <input type="text" id="modal-sch-name" required placeholder="مثال: ثانوية الفرقان الشرعية للبنين" class="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                </div>
+
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-700 mb-1">جنس المدرسة (الطلاب)</label>
+                        <select id="modal-sch-gender" required class="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                            <option value="ذكور">بنين (تخضع لجميع الموجهين الذكور)</option>
+                            <option value="إناث">بنات (تخضع لجميع الموجهات الإناث)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-700 mb-1">عدد الشعب الدراسية</label>
+                        <input type="number" id="modal-sch-sections" min="1" max="50" value="6" required class="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                    </div>
+                </div>
+
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-700 mb-1">المرحلة الدراسية</label>
+                        <select id="modal-sch-stage" required class="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                            <option value="مشترك (7 - بكالوريا)">مشترك (7 - بكالوريا)</option>
+                            <option value="إعدادي شرعي">إعدادي شرعي (7 - 9)</option>
+                            <option value="ثانوي شرعي">ثانوي شرعي (10 - 12)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-700 mb-1">المنطقة الجغرافية</label>
+                        <input type="text" id="modal-sch-zone" required placeholder="مثال: منبح، أو: مدينة حلب" class="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-semibold text-slate-700 mb-1">المسافة عن حلب (كم)</label>
+                        <input type="number" min="0" step="1" id="modal-sch-km" placeholder="مثال: 90" class="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                    </div>
+                </div>
+
+                <div>
+                    <label class="block text-xs font-semibold text-slate-700 mb-1">التخصص المطلوب ذو الأولوية</label>
+                    <select id="modal-sch-specialty" required class="w-full px-3 py-2 text-xs rounded-xl border border-slate-200 focus:outline-none focus:ring-2 focus:ring-emerald-500">
+                        <option value="الفقه وأصوله">الفقه وأصوله</option>
+                        <option value="القرآن الكريم وعلومه">القرآن الكريم وعلومه</option>
+                        <option value="الحديث الشريف والسيرة">الحديث الشريف والسيرة</option>
+                        <option value="العقيدة الإسلامية">العقيدة الإسلامية</option>
+                        <option value="اللغة العربية وآدابها">اللغة العربية وآدابها</option>
+                        <option value="العلوم الطبيعية">العلوم الطبيعية</option>
+                        <option value="الرياضيات">الرياضيات</option>
+                    </select>
+                </div>
+
+                <div class="flex items-center justify-end gap-2 pt-3 border-t border-slate-100">
+                    <button type="button" onclick="closeSchoolModal()" class="px-4 py-2 text-xs font-semibold text-slate-600 hover:bg-slate-100 rounded-xl transition">إلغاء</button>
+                    <button type="submit" class="px-5 py-2 text-xs font-bold bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl shadow-xs transition">حفظ المدرسة</button>
+                </div>
+            </form>
+        </div>
+    </div>
+
+    <!-- إشعار التنبيه العائم -->
+    <div id="toast" class="fixed bottom-5 left-5 z-50 transform transition-all duration-300 translate-y-24 opacity-0 bg-slate-900 text-white px-4 py-3 rounded-2xl shadow-xl flex items-center gap-3 text-xs sm:text-sm font-medium">
+        <i id="toast-icon" class="fa-solid fa-circle-check text-emerald-400 text-base"></i>
+        <span id="toast-msg">تمت العملية بنجاح</span>
+    </div>
+
+    <script src="config.js?v=17"></script>
+    <script>
+        const SHARIA_SPECIALTIES = [
+            "القرآن الكريم وعلومه",
+            "الفقه وأصوله",
+            "الحديث الشريف والسيرة",
+            "العقيدة الإسلامية",
+            "اللغة العربية وآدابها",
+            "الرياضيات",
+            "العلوم الطبيعية",
+            "اللغة الإنجليزية",
+            "التاريخ والحضارة"
+        ];
+
+        const ZONES = ["القطاع الشمالي", "القطاع الجنوبي", "القطاع الشرقي", "القطاع الغربي", "قطاع المركز"];
+
+        let supervisors = [];
+        let schools = [];
+        let schedules = {};
+        let distributionResults = [];
+
+        window.addEventListener('DOMContentLoaded', () => {
+            initDefaultDates();
+            loadStoredData();
+            if (window.APP_CONFIG && APP_CONFIG.SCHEDULE_CSV && APP_CONFIG.SUPERVISORS_CSV) return; // البيانات تأتي من Google Sheets
+            if (supervisors.length === 0 || schools.length === 0) {
+                loadSampleShariaData();
+            } else {
+                renderAllViews();
+            }
+        });
+
+        function initDefaultDates() {
+            const today = new Date();
+            const startInput = document.getElementById('plan-start-date');
+            const endInput = document.getElementById('plan-end-date');
+            
+            const nextWeek = new Date(today);
+            nextWeek.setDate(today.getDate() + 7);
+            const nextMonth = new Date(today);
+            nextMonth.setDate(today.getDate() + 35);
+
+            startInput.value = nextWeek.toISOString().split('T')[0];
+            endInput.value = nextMonth.toISOString().split('T')[0];
+        }
+
+        function loadStoredData() {
+            try {
+                const storedSup = localStorage.getItem('sharia_supervisors_open_scope');
+                const storedSch = localStorage.getItem('sharia_schools_open_scope');
+                const storedDist = localStorage.getItem('sharia_distribution_open_scope');
+                const storedSched = localStorage.getItem('sharia_schedules_open_scope');
+
+                if (storedSup) supervisors = JSON.parse(storedSup);
+                if (storedSch) schools = JSON.parse(storedSch);
+                if (storedDist) distributionResults = JSON.parse(storedDist);
+                if (storedSched) schedules = JSON.parse(storedSched);
+            } catch (e) {
+                console.error("فشل قراءة البيانات المحفوظة", e);
+            }
+        }
+
+        function persistData() {
+            try {
+                localStorage.setItem('sharia_supervisors_open_scope', JSON.stringify(supervisors));
+                localStorage.setItem('sharia_schools_open_scope', JSON.stringify(schools));
+                localStorage.setItem('sharia_distribution_open_scope', JSON.stringify(distributionResults));
+                if (!window.SHEETS_MODE) localStorage.setItem('sharia_schedules_open_scope', JSON.stringify(schedules));
+            } catch (e) {
+                console.error("خطأ في حفظ البيانات محلياً", e);
+            }
+        }
+
+        function loadSampleShariaData() {
+            supervisors = [];
+            schools = [];
+            schedules = {};
+            distributionResults = [];
+
+            const maleNames = [
+                "د. عمر عبد الرحمن البابلي", "الشيخ أنس محمود الحلبي", "أ. د. محمد نور الدين عتر", 
+                "أ. مصطفى خالد الزرقا", "الشيخ يوسف عبد الله الحموي", "أ. أحمد فاروق النبهان",
+                "د. عبد القادر محمد السباعي", "الشيخ بلال عثمان القادري", "أ. حسان إبراهيم البيانوني",
+                "د. ياسر مصطفى البغا", "الشيخ صالح عبد الحليم الخطيب", "أ. رضوان سامي السراج",
+                "د. ماجد كمال الدين الزين", "أ. عصام جميل الطحان", "الشيخ منذر راغب الرفاعي"
+            ];
+
+            const femaleNames = [
+                "د. عائشة عبد الرحيم الكردي", "أ. فاطمة محيي الدين الجابي", "د. منى صالح الحمصي",
+                "أ. خديجة رضوان الميداني", "أ. هدى جميل الشامي", "د. سارة عثمان الطنطاوي",
+                "أ. أسماء كمال الرفاعي", "د. كوثر عبد الله الغوري", "أ. رحاب ماهر السلقيني",
+                "أ. مريم عصام السعدي"
+            ];
+
+            let supIdx = 1;
+            maleNames.forEach((name, i) => {
+                supervisors.push({
+                    id: `sup-m-${supIdx++}`,
+                    name: name,
+                    gender: "ذكر",
+                    specialty: SHARIA_SPECIALTIES[i % SHARIA_SPECIALTIES.length],
+                    phone: `093${Math.floor(1000000 + Math.random() * 9000000)}`
+                });
+            });
+
+            femaleNames.forEach((name, i) => {
+                supervisors.push({
+                    id: `sup-f-${supIdx++}`,
+                    name: name,
+                    gender: "أنثى",
+                    specialty: SHARIA_SPECIALTIES[i % SHARIA_SPECIALTIES.length],
+                    phone: `094${Math.floor(1000000 + Math.random() * 9000000)}`
+                });
+            });
+
+            for (let i = 1; i <= 100; i++) {
+                const isMale = i <= 60;
+                const gender = isMale ? "ذكور" : "إناث";
+                const stageType = i % 3 === 0 ? "مشترك (7 - بكالوريا)" : (i % 2 === 0 ? "ثانوي شرعي" : "إعدادي شرعي");
+                const sectionsCount = 6 + (i % 7);
+                const specialtyNeeded = SHARIA_SPECIALTIES[i % SHARIA_SPECIALTIES.length];
+                const zone = ZONES[i % ZONES.length];
+
+                const schId = `sch-${i}`;
+                const schName = isMale 
+                    ? `مدرسة ${['الفرقان', 'النور', 'الهدى', 'الإمام النووي', 'الفتح الإسلامي', 'دار الأرقم', 'الصديق', 'الفاروق', 'خالد بن الوليد', 'الإمام مالك', 'الشافعي', 'أبي حنيفة', 'أحمد بن حنبل', 'البخاري', 'صلاح الدين'][i % 15]} الشرعية للبنين (${i})`
+                    : `معهد ${['عائشة أم المؤمنين', 'خديجة الكبرى', 'فاطمة الزهراء', 'حفصة', 'البتول', 'أسماء بنت أبي بكر', 'أروى بنت عبد المطلب', 'الخنساء', 'أم سلمة', 'زينب بنت علي'][i % 10]} الشرعي للبنات (${i})`;
+
+                schools.push({
+                    id: schId,
+                    name: schName,
+                    gender: gender,
+                    stage: stageType,
+                    sections: sectionsCount,
+                    zone: zone,
+                    targetSpecialty: specialtyNeeded
+                });
+
+                schedules[schId] = generateWeeklySchedule(sectionsCount);
+            }
+
+            persistData();
+            renderAllViews();
+            showToast("تم توليد البيانات بنظام 7 حصص يومياً بنجاح!");
+        }
+
+        function generateWeeklySchedule(sectionsCount) {
+            const days = ["الأحد", "الإثنين", "الثلاثاء", "الأربعاء", "الخميس"];
+            const grades = ["الصف السابع (أ)", "الصف السابع (ب)", "الصف الثامن (أ)", "الصف التاسع (إعدادية)", "الأول الثانوي الشرعي", "الثاني الثانوي الشرعي", "الثالث الثانوي (البكالوريا)"];
+            const subjects = [
+                "القرآن الكريم والتجويد", "الفقه الشافعي/الحنفي", "الحديث الشريف", 
+                "العقيدة الإسلامية", "النحو والصرف", "التفسير", "الفرائض والمواريث", "اللغة العربية", "الرياضيات", "العلوم العامة", "اللغة الإنجليزية", "السيرة النبوية"
+            ];
+
+            const scheduleList = [];
+            for (let s = 0; s < Math.min(sectionsCount, grades.length); s++) {
+                const gradeName = grades[s];
+                days.forEach(day => {
+                    for (let period = 1; period <= 7; period++) {
+                        scheduleList.push({
+                            grade: gradeName,
+                            day: day,
+                            period: period,
+                            subject: subjects[(s + period + day.length) % subjects.length]
+                        });
+                    }
+                });
+            }
+            return scheduleList;
+        }
+
+        // ===== الجدولة الجغرافية =====
+        // الأحد: ريف بعيد (50 كم فأكثر) | الإثنين: مدينة حلب (قطاع المركز) | الثلاثاء-الخميس: ريف قريب (أقل من 50 كم)
+        // الجمعة والسبت عطلة دائماً. فريق الذكور وفريق الإناث يذهبان لنفس المنطقة في نفس اليوم.
+        const FAR_KM = 50;
+        const DAY_CATEGORY = { 0: 'far', 1: 'city', 2: 'near', 3: 'near', 4: 'near' };
+        const CAT_LABEL = { far: 'ريف بعيد', city: 'مدينة حلب', near: 'ريف قريب' };
+        const normZone = z => String(z || '').replace(/[ً-ْ]/g, '').replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي').replace(/\s+/g, ' ').trim();
+        const toKm = v => { if (v === null || v === undefined || v === '') return NaN; const t = String(v).replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(/٫/g, '.').replace(/[^\d.]/g, ''); return t ? parseFloat(t) : NaN; };
+        const CITY_RE = /مدينه حلب|^حلب$|^حلب |المركز|داخل المدينه|حلب المدينه/;
+        function classifySchool(sc) {
+            const zn = normZone(sc.zone), km = toKm(sc.km);
+            if (CITY_RE.test(zn)) return { cat: 'city', key: 'city', km: 0 };
+            if (!isNaN(km)) return { cat: km >= FAR_KM ? 'far' : 'near', key: zn || ('s-' + sc.id), km };
+            return { cat: 'near', key: zn || ('s-' + sc.id), km: NaN, unknown: true };
+        }
+
+        function runIntelligentDistribution() {
+            if (supervisors.length === 0 || schools.length === 0) {
+                showToast("الرجاء توفير بيانات الموجهين والمدارس أولاً", "error");
+                return;
+            }
+
+            const startDateVal = document.getElementById('plan-start-date').value;
+            const endDateVal = document.getElementById('plan-end-date').value;
+            const teamSizeVal = document.getElementById('team-size-per-school').value;
+            const allMode = teamSizeVal === 'ALL';
+            const teamSize = allMode ? Infinity : (parseInt(teamSizeVal) || 2);
+
+            if (!startDateVal || !endDateVal) {
+                showToast("يرجى تحديد تاريخ بداية ونهاية خطة التوزيع!", "error");
+                return;
+            }
+
+            const parseD = v => { const [y, m, d] = v.split('-').map(Number); return new Date(y, m - 1, d); };
+            const fmtD = d => d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0') + '-' + String(d.getDate()).padStart(2, '0');
+            const startDate = parseD(startDateVal), endDate = parseD(endDateVal);
+
+            if (endDate < startDate) {
+                showToast("تاريخ النهاية يجب أن يكون بعد تاريخ البداية!", "error");
+                return;
+            }
+
+            // أيام كل فئة (الجمعة والسبت مستبعدان دائماً)
+            const datesBy = { far: [], city: [], near: [] };
+            for (let c = new Date(startDate); c <= endDate; c.setDate(c.getDate() + 1)) {
+                const k = DAY_CATEGORY[c.getDay()];
+                if (k) datesBy[k].push(fmtD(c));
+            }
+            const allWork = [].concat(datesBy.far, datesBy.city, datesBy.near).sort();
+            if (allWork.length === 0) { showToast("الفترة المحددة كلها عطلة (جمعة/سبت). وسّع الفترة.", "error"); return; }
+
+            distributionResults = [];
+            const supervisorVisitCount = {};
+            supervisors.forEach(sup => supervisorVisitCount[sup.id] = 0);
+            const busy = {}; // التاريخ -> الموجهون المشغولون في ذلك اليوم
+            const pools = { 'ذكور': supervisors.filter(s => s.gender === "ذكر"), 'إناث': supervisors.filter(s => s.gender === "أنثى") };
+            const perDay = g => allMode ? 1 : Math.max(1, Math.floor(pools[g].length / teamSize));
+
+            // تجميع المدارس: الفئة ← المنطقة ← (بنين / بنات)
+            const zones = {};
+            let unknownCount = 0;
+            schools.forEach(sc => {
+                const c = classifySchool(sc);
+                if (c.unknown) unknownCount++;
+                const zk = c.cat + '|' + c.key;
+                const z = zones[zk] || (zones[zk] = { cat: c.cat, key: c.key, label: sc.zone || sc.name, km: c.km, g: { 'ذكور': [], 'إناث': [] } });
+                if (!isNaN(c.km) && (isNaN(z.km) || c.km < z.km)) z.km = c.km;
+                z.g[sc.gender === 'إناث' ? 'إناث' : 'ذكور'].push(sc);
+            });
+
+            const warnings = [];
+            const cursor = { far: 0, city: 0, near: 0 };
+            const placeTeam = (school, dateStr, info) => {
+                const pool = pools[school.gender === 'إناث' ? 'إناث' : 'ذكور'];
+                const free = pool.filter(s => !(busy[dateStr] && busy[dateStr].has(s.id)));
+                const cand = (allMode || free.length === 0) ? pool : free;
+                const hasSpec = (sup) => (window.supHasSpec ? supHasSpec(sup, school.targetSpecialty) : sup.specialty === school.targetSpecialty);
+                const team = [];
+                if (allMode) {
+                    cand.slice().sort((a, b) => hasSpec(b) - hasSpec(a)).forEach(sup => team.push(sup));
+                } else {
+                    const used = new Set();
+                    const first = cand.filter(sup => hasSpec(sup)).sort((a, b) => supervisorVisitCount[a.id] - supervisorVisitCount[b.id])[0];
+                    if (first) { team.push(first); used.add(first.specialty); }
+                    while (team.length < teamSize) {
+                        const nx = cand.filter(sup => !team.some(m => m.id === sup.id) && !used.has(sup.specialty))
+                            .sort((a, b) => supervisorVisitCount[a.id] - supervisorVisitCount[b.id])[0]
+                            || cand.filter(sup => !team.some(m => m.id === sup.id)).sort((a, b) => supervisorVisitCount[a.id] - supervisorVisitCount[b.id])[0];
+                        if (!nx) break;
+                        team.push(nx); used.add(nx.specialty);
+                    }
+                }
+                team.forEach(s => { supervisorVisitCount[s.id]++; (busy[dateStr] = busy[dateStr] || new Set()).add(s.id); });
+                const d = parseD(dateStr);
+                distributionResults.push({
+                    schoolId: school.id, schoolName: school.name, gender: school.gender, stage: school.stage, sections: school.sections,
+                    zone: school.zone, km: school.km, category: info.cat, categoryLabel: CAT_LABEL[info.cat],
+                    visitDate: dateStr, dayName: ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'][d.getDay()],
+                    supervisors: team.map(s => ({ id: s.id, name: s.name, specialty: s.specialty, phone: s.phone, gender: s.gender }))
+                });
+            };
+
+            ['far', 'city', 'near'].forEach(cat => {
+                const list = Object.values(zones).filter(z => z.cat === cat)
+                    .sort((a, b) => ((isNaN(a.km) ? 1e9 : a.km) - (isNaN(b.km) ? 1e9 : b.km)) || String(a.label).localeCompare(String(b.label), 'ar'));
+                if (!list.length) return;
+                let dates = datesBy[cat];
+                if (!dates.length) { dates = allWork; warnings.push('لا يوجد يوم «' + CAT_LABEL[cat] + '» ضمن الفترة، وُزّعت على بقية الأيام'); }
+                let total = 0;
+                list.forEach(z => {
+                    const pm = perDay('ذكور'), pf = perDay('إناث');
+                    const need = Math.max(Math.ceil(z.g['ذكور'].length / pm), Math.ceil(z.g['إناث'].length / pf), 1);
+                    const base = cursor[cat];
+                    ['ذكور', 'إناث'].forEach(g => {
+                        const pd = g === 'ذكور' ? pm : pf;
+                        z.g[g].forEach((sc, j) => placeTeam(sc, dates[(base + Math.floor(j / pd)) % dates.length], z));
+                    });
+                    cursor[cat] += need; total += need;
+                });
+                if (total > dates.length) warnings.push('«' + CAT_LABEL[cat] + '»: تحتاج ' + total + ' يوماً والمتاح ' + dates.length + ' فقط، فتكررت الأيام. وسّع الفترة.');
+            });
+
+            distributionResults.sort((a, b) => a.visitDate.localeCompare(b.visitDate) || String(a.zone).localeCompare(String(b.zone), 'ar') || a.gender.localeCompare(b.gender, 'ar'));
+            persistData();
+            renderAllViews();
+            switchView('distribution');
+            if (unknownCount) warnings.push(unknownCount + ' مدرسة بلا مسافة/منطقة معروفة وُضعت في الريف القريب. أضف عمود «المسافة» لها.');
+            showToast(warnings.length ? 'تمت الجدولة. ' + warnings.join(' | ') : 'تمت الجدولة الجغرافية لجميع المدارس بنجاح!', warnings.length ? 'info' : 'success');
+        }
+
+        function renderAllViews() {
+            renderStatistics();
+            renderDistributionTable();
+            renderSupervisorsTable();
+            renderSchoolsTable();
+            populateScheduleSchoolSelector();
+            renderSchoolScheduleView();
+            prepareOfficialPrintReport();
+        }
+
+        function renderStatistics() {
+            const maleSup = supervisors.filter(s => s.gender === "ذكر").length;
+            const femaleSup = supervisors.filter(s => s.gender === "أنثى").length;
+            const maleSch = schools.filter(s => s.gender === "ذكور").length;
+            const femaleSch = schools.filter(s => s.gender === "إناث").length;
+
+            const scheduled = distributionResults.filter(d => d.supervisors && d.supervisors.length > 0).length;
+
+            document.getElementById('stat-male-sup').textContent = maleSup;
+            document.getElementById('stat-female-sup').textContent = femaleSup;
+            document.getElementById('stat-male-sch').textContent = `${maleSch} مدرسة`;
+            document.getElementById('stat-female-sch').textContent = `${femaleSch} مدرسة`;
+
+            document.getElementById('dist-assigned-stat').textContent = scheduled;
+            document.getElementById('dist-total-stat').textContent = schools.length;
+        }
+
+        function renderDistributionTable() {
+            const tbody = document.getElementById('distribution-table-body');
+            const genderFilter = document.getElementById('filter-dist-gender').value;
+            const searchVal = (document.getElementById('search-dist-school').value || '').trim().toLowerCase();
+
+            const filteredData = distributionResults.filter(item => {
+                const matchGender = genderFilter === 'ALL' || item.gender === genderFilter;
+                const matchSearch = !searchVal || 
+                    item.schoolName.toLowerCase().includes(searchVal) ||
+                    item.zone.toLowerCase().includes(searchVal);
+                return matchGender && matchSearch;
+            });
+
+            if (filteredData.length === 0) {
+                tbody.innerHTML = `
+                    <tr>
+                        <td colspan="9" class="p-8 text-center text-slate-400">
+                            <i class="fa-solid fa-folder-open text-3xl mb-2 text-slate-300"></i>
+                            <p class="text-xs">لا يوجد جدول زيارات مجدول حالياً. اضغط على زر "جدولة الزيارات الدورية" بالأعلى</p>
+                        </td>
+                    </tr>
+                `;
+                return;
+            }
+
+            tbody.innerHTML = filteredData.map((row, idx) => {
+                const isMaleSchool = row.gender === "ذكور";
+                const genderBadge = isMaleSchool 
+                    ? `<span class="bg-blue-100 text-blue-800 text-[10px] font-bold px-2 py-0.5 rounded-full">بنين</span>`
+                    : `<span class="bg-rose-100 text-rose-800 text-[10px] font-bold px-2 py-0.5 rounded-full">بنات</span>`;
+
+                const generalScopeBadge = isMaleSchool
+                    ? `<span class="text-slate-600 bg-slate-100 px-2 py-0.5 rounded text-[11px] font-medium"><i class="fa-solid fa-users text-blue-600 ml-1"></i>كافة الموجهين الذكور</span>`
+                    : `<span class="text-slate-600 bg-slate-100 px-2 py-0.5 rounded text-[11px] font-medium"><i class="fa-solid fa-users text-rose-600 ml-1"></i>كافة الموجهات الإناث</span>`;
+
+                const teamHtml = row.supervisors && row.supervisors.length > 0
+                    ? row.supervisors.map(sup => `
+                        <div class="inline-flex items-center gap-1 bg-slate-50 border border-slate-200 px-2 py-0.5 rounded-lg text-[11px] m-0.5">
+                            <span class="font-bold text-slate-800">${sup.name}</span>
+                            <span class="text-emerald-700 font-semibold text-[10px]">(${sup.specialty})</span>${sup.warn ? `<i class="fa-solid fa-triangle-exclamation text-amber-500" title="${sup.warn}"></i>` : ''}
+                        </div>
+                    `).join('')
+                    : `<span class="text-amber-600 text-[11px]">متاحة لجميع موجهي الاختصاص</span>`;
+
+                return `
+                    <tr class="hover:bg-slate-50/80 transition border-b border-slate-100">
+                        <td class="p-3 text-center text-slate-500 font-bold">${idx + 1}</td>
+                        <td class="p-3 font-bold text-slate-900">${row.schoolName}</td>
+                        <td class="p-3 text-center">${genderBadge}</td>
+                        <td class="p-3 text-slate-600">${row.stage} (${row.sections} شعب)</td>
+                        <td class="p-3 text-slate-600">${row.zone}${row.categoryLabel ? `<div class="text-[10px] text-slate-400">${row.categoryLabel}${row.km ? ' · ' + row.km + ' كم' : ''}</div>` : ''}</td>
+                        <td class="p-3">${generalScopeBadge}</td>
+                        <td class="p-3 font-semibold text-emerald-800">${row.visitDate ? (row.dayName ? row.dayName + ' ' : '') + row.visitDate : 'زيارة دورية مفتوحة'}</td>
+                        <td class="p-3">${teamHtml}</td>
+                        <td class="p-3 text-center no-print">
+                            <button onclick="viewSchoolScheduleModal('${row.schoolId}')" class="text-indigo-600 hover:text-indigo-800 px-1.5 py-1 text-xs" title="عرض جدول الحصص">
+                                <i class="fa-solid fa-calendar-check"></i>
+                            </button>
+                            <button onclick="openTeamBuilder('${row.schoolId}')" class="text-emerald-700 hover:text-emerald-900 px-1.5 py-1 text-xs" title="تحديد فريق الزيارة">
+                                <i class="fa-solid fa-people-group"></i>
+                            </button>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        function renderSupervisorsTable() {
+            const tbody = document.getElementById('supervisors-table-body');
+            if (supervisors.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="8" class="text-center p-6 text-slate-400">لا يوجد موجهين مسجلين</td></tr>`;
+                return;
+            }
+
+            const maleSchoolsCount = schools.filter(s => s.gender === "ذكور").length;
+            const femaleSchoolsCount = schools.filter(s => s.gender === "إناث").length;
+
+            tbody.innerHTML = supervisors.map((sup, idx) => {
+                const isMale = sup.gender === "ذكر";
+                const totalSupervisedSchools = isMale ? maleSchoolsCount : femaleSchoolsCount;
+                const scheduledVisits = distributionResults.filter(d => d.supervisors && d.supervisors.some(s => s.id === sup.id)).length;
+
+                return `
+                    <tr class="hover:bg-slate-50 transition border-b border-slate-100">
+                        <td class="p-3 text-center text-slate-500 font-bold">${idx + 1}</td>
+                        <td class="p-3 font-bold text-slate-900">${sup.name}</td>
+                        <td class="p-3 text-center">
+                            <span class="text-xs px-2.5 py-0.5 rounded-full font-semibold ${isMale ? 'bg-blue-50 text-blue-700' : 'bg-rose-50 text-rose-700'}">
+                                ${sup.gender}
+                            </span>
+                        </td>
+                        <td class="p-3 text-emerald-800 font-semibold">${sup.specialty}</td>
+                        <td class="p-3 text-slate-600" dir="ltr">${sup.phone || '-'}</td>
+                        <td class="p-3 text-center">
+                            <button onclick="showSupervisorSchoolScope('${sup.id}')" class="inline-flex items-center gap-1.5 bg-emerald-50 hover:bg-emerald-100 text-emerald-800 text-[11px] font-bold px-2.5 py-1 rounded-lg border border-emerald-200 transition">
+                                <i class="fa-solid fa-building-columns text-[10px]"></i>
+                                <span>مسؤول عن جميع مدارس ${isMale ? 'البنين' : 'البنات'} (${totalSupervisedSchools} مدرسة)</span>
+                            </button>
+                        </td>
+                        <td class="p-3 text-center font-bold text-slate-700">${scheduledVisits} زيارة</td>
+                        <td class="p-3 text-center no-print">
+                            <button onclick="editSupervisor('${sup.id}')" class="text-blue-600 hover:text-blue-800 p-1"><i class="fa-solid fa-pen-to-square"></i></button>
+                            <button onclick="deleteSupervisor('${sup.id}')" class="text-rose-600 hover:text-rose-800 p-1"><i class="fa-solid fa-trash"></i></button>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        function showSupervisorSchoolScope(supId) {
+            const sup = supervisors.find(s => s.id === supId);
+            if (!sup) return;
+
+            const isMale = sup.gender === "ذكر";
+            const targetGender = isMale ? "ذكور" : "إناث";
+            const relevantSchools = schools.filter(s => s.gender === targetGender);
+
+            document.getElementById('modal-scope-title').textContent = `المدارس الخاضعة لإشراف: ${sup.name}`;
+            document.getElementById('modal-scope-subtitle').textContent = `وفق النظام: الموجه مسؤول عن كافة مدارس ${isMale ? 'الذكور' : 'الإناث'} دون حصر (العدد الإجمالي: ${relevantSchools.length} مدرسة)`;
+
+            const listContainer = document.getElementById('modal-scope-list');
+            listContainer.innerHTML = relevantSchools.map((sch, i) => `
+                <li class="py-2 flex items-center justify-between">
+                    <div>
+                        <span class="font-bold text-slate-800">${i + 1}. ${sch.name}</span>
+                        <p class="text-[11px] text-slate-500">${sch.stage} - ${sch.zone} (${sch.sections} شعب)</p>
+                    </div>
+                    <span class="text-[10px] bg-slate-100 text-slate-700 px-2 py-0.5 rounded">مشرف عام</span>
+                </li>
+            `).join('');
+
+            document.getElementById('modal-sup-scope').classList.remove('hidden');
+        }
+
+        function closeScopeModal() {
+            document.getElementById('modal-sup-scope').classList.add('hidden');
+        }
+
+        function renderSchoolsTable() {
+            const tbody = document.getElementById('schools-table-body');
+            if (schools.length === 0) {
+                tbody.innerHTML = `<tr><td colspan="8" class="text-center p-6 text-slate-400">لا توجد مدارس مسجلة</td></tr>`;
+                return;
+            }
+
+            const maleSupCount = supervisors.filter(s => s.gender === "ذكر").length;
+            const femaleSupCount = supervisors.filter(s => s.gender === "أنثى").length;
+
+            tbody.innerHTML = schools.map((sch, idx) => {
+                const isMale = sch.gender === "ذكور";
+                const supervisorScopeText = isMale 
+                    ? `كافة الموجهين الذكور (${maleSupCount} موجه)`
+                    : `كافة الموجهات الإناث (${femaleSupCount} موجهة)`;
+
+                return `
+                    <tr class="hover:bg-slate-50 transition border-b border-slate-100">
+                        <td class="p-3 text-center text-slate-500 font-bold">${idx + 1}</td>
+                        <td class="p-3 font-bold text-slate-900">${sch.name}</td>
+                        <td class="p-3 text-center">
+                            <span class="text-xs px-2 py-0.5 rounded-full font-semibold ${isMale ? 'bg-blue-50 text-blue-700' : 'bg-rose-50 text-rose-700'}">
+                                ${sch.gender}
+                            </span>
+                        </td>
+                        <td class="p-3 text-slate-600">${sch.stage}</td>
+                        <td class="p-3 text-center font-bold text-slate-700">${sch.sections}</td>
+                        <td class="p-3 text-slate-600">${sch.zone}</td>
+                        <td class="p-3 font-medium text-emerald-800">
+                            <i class="fa-solid fa-shield-halved ml-1 text-emerald-600"></i>${supervisorScopeText}
+                        </td>
+                        <td class="p-3 text-center no-print">
+                            <button onclick="editSchool('${sch.id}')" class="text-blue-600 hover:text-blue-800 p-1"><i class="fa-solid fa-pen-to-square"></i></button>
+                            <button onclick="deleteSchool('${sch.id}')" class="text-rose-600 hover:text-rose-800 p-1"><i class="fa-solid fa-trash"></i></button>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        }
+
+        function populateScheduleSchoolSelector() {
+            const sel = document.getElementById('schedule-school-selector');
+            if (schools.length === 0) {
+                sel.innerHTML = `<option>لا توجد مدارس مسجلة</option>`;
+                return;
+            }
+            const currentVal = sel.value;
+            sel.innerHTML = schools.map(s => `
+                <option value="${s.id}">${s.name} (${s.gender} - ${s.sections} شعب)</option>
+            `).join('');
+
+            if (currentVal && schools.some(s => s.id === currentVal)) {
+                sel.value = currentVal;
+            }
+        }
+
+        // دالة موحدة لتسوية أسماء الأيام والهمزات لمنع ظهور (-)
+        function normalizeDayName(d) {
+            if (!d) return "";
+            return String(d)
+                .trim()
+                .replace(/أ|إ|آ/g, 'ا')
+                .replace(/\s+/g, '');
+        }
+
+        function renderSchoolScheduleView() {
+            const sel = document.getElementById('schedule-school-selector');
+            const container = document.getElementById('schedule-display-container');
+            const schoolId = sel.value;
+
+            if (!schoolId || !schedules[schoolId]) {
+                container.innerHTML = `
+                    <div class="text-center py-8 text-slate-400 text-xs">
+                        <i class="fa-solid fa-calendar-xmark text-2xl mb-2 text-slate-300"></i>
+                        <p>لا يوجد جدول حصص متاح لهذه المدرسة، يمكنك توليد البيانات النموذجية أو استيراد الجدول</p>
+                    </div>
+                `;
+                return;
+            }
+
+            const school = schools.find(s => s.id === schoolId);
+            const list = schedules[schoolId];
+            const grades = [...new Set(list.map(item => item.grade))];
+            const days = ["الأحد", "الإثنين", "الثلاثاء", "الأربعاء", "الخميس"];
+
+            let html = `
+                <div class="mb-4 pb-3 border-b border-slate-100 flex items-center justify-between">
+                    <div>
+                        <h4 class="font-bold text-sm text-slate-900">${school ? school.name : ''}</h4>
+                        <p class="text-xs text-slate-500">الجنس: ${school ? school.gender : ''} | يخضع لإشراف كافة موجهي وموجهات الاختصاص المعنيين</p>
+                    </div>
+                    <span class="text-xs bg-emerald-50 text-emerald-800 px-3 py-1 rounded-full font-bold border border-emerald-200">
+                        الجدول الأسبوعي المعتمد (7 حصص)
+                    </span>
+                </div>
+                <div class="space-y-4">
+            `;
+
+            grades.forEach(grade => {
+                html += `
+                    <div class="border border-slate-200 rounded-xl p-3 bg-slate-50/50">
+                        <h5 class="text-xs font-bold text-slate-800 mb-2 flex items-center gap-1.5">
+                            <i class="fa-solid fa-graduation-cap text-emerald-600"></i>
+                            <span>${grade}</span>
+                        </h5>
+                        <div class="overflow-x-auto">
+                            <table class="w-full text-right text-xs bg-white rounded-lg border border-slate-200">
+                                <thead>
+                                    <tr class="bg-slate-100 text-slate-700">
+                                        <th class="p-2 text-center w-16">اليوم</th>
+                                        <th class="p-2 text-center">الحصة 1</th>
+                                        <th class="p-2 text-center">الحصة 2</th>
+                                        <th class="p-2 text-center">الحصة 3</th>
+                                        <th class="p-2 text-center">الحصة 4</th>
+                                        <th class="p-2 text-center">الحصة 5</th>
+                                        <th class="p-2 text-center">الحصة 6</th>
+                                        <th class="p-2 text-center">الحصة 7</th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                `;
+
+                days.forEach(day => {
+                    html += `<tr><td class="p-2 font-bold bg-slate-50 text-center border-t border-slate-100">${day}</td>`;
+                    for (let p = 1; p <= 7; p++) {
+                        const item = list.find(x => 
+                            x.grade === grade && 
+                            normalizeDayName(x.day) === normalizeDayName(day) && 
+                            parseInt(x.period) === p
+                        );
+                        html += `
+                            <td class="p-2 border-t border-r border-slate-100 text-[11px] text-slate-700 text-center">
+                                ${item ? `<span class="font-medium">${item.subject}</span>` : '<span class="text-slate-300">-</span>'}
+                            </td>
+                        `;
+                    }
+                    html += `</tr>`;
+                });
+
+                html += `</tbody></table></div></div>`;
+            });
+
+            html += `</div>`;
+            container.innerHTML = html;
+        }
+
+        function viewSchoolScheduleModal(schoolId) {
+            switchView('schedules');
+            document.getElementById('schedule-school-selector').value = schoolId;
+            renderSchoolScheduleView();
+        }
+
+        function switchView(viewName) {
+            const views = ['distribution', 'supervisors', 'schools', 'schedules', 'team', 'filter', 'import'];
+            views.forEach(v => {
+                const el = document.getElementById(`view-${v}`);
+                const btn = document.getElementById(`tab-btn-${v}`);
+                if (v === viewName) {
+                    el.classList.remove('hidden');
+                    btn.className = "px-3.5 py-2 rounded-xl text-xs sm:text-sm font-bold bg-emerald-600 text-white flex items-center gap-2 shadow-xs transition";
+                } else {
+                    el.classList.add('hidden');
+                    btn.className = "px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold text-slate-600 hover:bg-slate-100 transition flex items-center gap-2";
+                }
+            });
+        }
+
+        // ======================== محرك القراءة والتطابق الذكي ========================
+
+        function sanitizeObjectKeys(obj) {
+            const clean = {};
+            for (let k in obj) {
+                if (Object.prototype.hasOwnProperty.call(obj, k)) {
+                    const cleanKey = k.replace(/[\u200B-\u200D\uFEFF]/g, '').trim();
+                    clean[cleanKey] = typeof obj[k] === 'string' ? obj[k].trim() : obj[k];
+                }
+            }
+            return clean;
+        }
+
+        function normalizeSchoolName(str) {
+            if (!str) return "";
+            return String(str)
+                .replace(/[()0-9]/g, '')
+                .replace(/مدرسة|معهد|ثانوية|الشرعية|الشرعي|للبنين|للبنات/g, '')
+                .replace(/\s+/g, '')
+                .trim();
+        }
+
+        function parseExcelFile(file, callback) {
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                try {
+                    let workbook;
+                    const data = e.target.result;
+                    if (typeof FileReader.prototype.readAsBinaryString === "function") {
+                        workbook = XLSX.read(data, { type: 'binary' });
+                    } else {
+                        const bytes = new Uint8Array(data);
+                        workbook = XLSX.read(bytes, { type: 'array' });
+                    }
+
+                    if (!workbook || !workbook.SheetNames || workbook.SheetNames.length === 0) {
+                        showToast("ملف Excel غير صالح أو فارغ", "error");
+                        return;
+                    }
+
+                    const firstSheet = workbook.Sheets[workbook.SheetNames[0]];
+                    const rawRows = XLSX.utils.sheet_to_json(firstSheet, { defval: "" });
+                    const cleanRows = rawRows.map(r => sanitizeObjectKeys(r));
+                    callback(cleanRows);
+                } catch (err) {
+                    console.error("فشل قراءة الملف:", err);
+                    showToast("حدث خطأ أثناء قراءة محتوى الملف", "error");
+                }
+            };
+
+            if (typeof FileReader.prototype.readAsBinaryString === "function") {
+                reader.readAsBinaryString(file);
+            } else {
+                reader.readAsArrayBuffer(file);
+            }
+        }
+
+        function importSupervisorsFile() {
+            const input = document.getElementById('file-supervisors');
+            if (!input.files || !input.files[0]) {
+                showToast("يرجى اختيار ملف Excel للموجهين أولاً", "error");
+                return;
+            }
+
+            parseExcelFile(input.files[0], (rows) => {
+                if (rows.length === 0) {
+                    showToast("الملف فارغ ولا يحتوي على صفوف بيانات", "error");
+                    return;
+                }
+
+                supervisors = rows.map((row, i) => {
+                    const nameVal = row['اسم الموجه'] || row['الاسم'] || row['name'] || row['اسم المشرف'] || `موجه ${i + 1}`;
+                    const rawGender = String(row['الجنس'] || row['gender'] || row['النوع'] || 'ذكر').toLowerCase();
+                    const specVal = row['التخصص'] || row['specialty'] || row['الاختصاص'] || 'الفقه وأصوله';
+                    const phoneVal = row['الهاتف'] || row['phone'] || row['رقم الهاتف'] || '-';
+
+                    const isFemale = rawGender.includes('أنث') || rawGender.includes('انث') || rawGender.includes('بنات') || rawGender.includes('fem');
+
+                    return {
+                        id: `sup-imp-${Date.now()}-${i}`,
+                        name: String(nameVal).trim(),
+                        gender: isFemale ? 'أنثى' : 'ذكر',
+                        specialty: String(specVal).trim(),
+                        phone: String(phoneVal).trim()
+                    };
+                });
+
+                persistData();
+                renderAllViews();
+                switchView('supervisors');
+                showToast(`تم استيراد ${supervisors.length} موجه بنجاح!`);
+                input.value = "";
+            });
+        }
+
+        function importSchoolsFile() {
+            const input = document.getElementById('file-schools');
+            if (!input.files || !input.files[0]) {
+                showToast("يرجى اختيار ملف Excel للمدارس أولاً", "error");
+                return;
+            }
+
+            parseExcelFile(input.files[0], (rows) => {
+                if (rows.length === 0) {
+                    showToast("الملف فارغ ولا يحتوي على بيانات المدارس", "error");
+                    return;
+                }
+
+                schools = rows.map((row, i) => {
+                    const schId = `sch-imp-${Date.now()}-${i}`;
+                    const nameVal = row['اسم المدرسة'] || row['المدرسة'] || row['name'] || `مدرسة ${i + 1}`;
+                    const rawGender = String(row['الجنس'] || row['نوع المدرسة'] || row['نوع'] || 'ذكور').toLowerCase();
+                    const stageVal = row['المرحلة'] || row['المرحلة الدراسية'] || row['stage'] || 'مشترك (7 - بكالوريا)';
+                    const zoneVal = row['المنطقة'] || row['المنطقة الجغرافية'] || row['zone'] || 'قطاع المركز';
+                    const kmVal = row['المسافة'] || row['المسافة (كم)'] || row['المسافة كم'] || row['km'] || '';
+                    const specVal = row['التخصص المطلوب'] || row['التخصص'] || 'الفقه وأصوله';
+                    const sectionsVal = parseInt(row['الشعب'] || row['عدد الشعب'] || row['sections'] || 6) || 6;
+
+                    const isFemale = rawGender.includes('إناث') || rawGender.includes('اناث') || rawGender.includes('بنات') || rawGender.includes('أنث');
+
+                    if (!schedules[schId]) {
+                        schedules[schId] = generateWeeklySchedule(sectionsVal);
+                    }
+
+                    return {
+                        id: schId,
+                        name: String(nameVal).trim(),
+                        gender: isFemale ? 'إناث' : 'ذكور',
+                        stage: String(stageVal).trim(),
+                        sections: sectionsVal,
+                        zone: String(zoneVal).trim(),
+                        km: kmVal,
+                        targetSpecialty: String(specVal).trim()
+                    };
+                });
+
+                distributionResults = [];
+                persistData();
+                renderAllViews();
+                switchView('schools');
+                showToast(`تم استيراد ${schools.length} مدرسة بنجاح! اضغط "جدولة الزيارات الدورية" لتحديث الخطة.`);
+                input.value = "";
+            });
+        }
+
+        function importSchedulesFile() {
+            const input = document.getElementById('file-schedules');
+            if (!input.files || !input.files[0]) {
+                showToast("يرجى اختيار ملف جداول الحصص", "error");
+                return;
+            }
+
+            parseExcelFile(input.files[0], (rows) => {
+                if (rows.length === 0) {
+                    showToast("الملف فارغ أو لا يحتوي على حصص دراسية", "error");
+                    return;
+                }
+
+                let importedRows = 0;
+                rows.forEach((row, idx) => {
+                    const schName = String(row['المدرسة'] || row['اسم المدرسة'] || '').trim();
+                    if (!schName) return;
+
+                    let targetSchool = schools.find(s => s.name === schName || s.name.includes(schName) || schName.includes(s.name));
+
+                    if (!targetSchool) {
+                        const cleanTarget = normalizeSchoolName(schName);
+                        if (cleanTarget.length >= 2) {
+                            targetSchool = schools.find(s => normalizeSchoolName(s.name).includes(cleanTarget) || cleanTarget.includes(normalizeSchoolName(s.name)));
+                        }
+                    }
+
+                    if (!targetSchool) {
+                        const newSchId = `sch-auto-${Date.now()}-${idx}`;
+                        targetSchool = {
+                            id: newSchId,
+                            name: schName,
+                            gender: schName.includes('بنات') || schName.includes('إناث') ? 'إناث' : 'ذكور',
+                            stage: 'مشترك (7 - بكالوريا)',
+                            sections: 7,
+                            zone: 'قطاع المركز',
+                            targetSpecialty: 'الفقه وأصوله'
+                        };
+                        schools.push(targetSchool);
+                    }
+
+                    if (!schedules[targetSchool.id]) {
+                        schedules[targetSchool.id] = [];
+                    }
+
+                    schedules[targetSchool.id].push({
+                        grade: String(row['الصف'] || row['الشعبة'] || 'الصف السابع').trim(),
+                        day: String(row['اليوم'] || 'الأحد').trim(),
+                        period: parseInt(row['الحصة'] || row['رقم الحصة'] || 1) || 1,
+                        subject: String(row['المادة'] || row['المقرر'] || 'القرآن الكريم').trim()
+                    });
+                    importedRows++;
+                });
+
+                persistData();
+                populateScheduleSchoolSelector();
+                renderSchoolScheduleView();
+                switchView('schedules');
+                showToast(`تم استيراد ${importedRows} حصة دراسية بنجاح وتوزيعها على المدارس!`);
+                input.value = "";
+            });
+        }
+
+        // ======================== دوال التصدير والقوالب ========================
+
+        function exportComprehensiveExcel() {
+            if (schools.length === 0) {
+                showToast("لا توجد بيانات متاحة للتصدير!", "error");
+                return;
+            }
+
+            const wb = XLSX.utils.book_new();
+
+            const distSheetData = distributionResults.map((item, idx) => ({
+                "م": idx + 1,
+                "اسم المدرسة الشرعية": item.schoolName,
+                "نوع المدرسة": item.gender,
+                "المرحلة الدراسية": item.stage,
+                "عدد الشعب": item.sections,
+                "المنطقة الجغرافية": item.zone,
+                "نطاق الإشراف العام": item.gender === 'ذكور' ? 'مسؤولية جميع الموجهين الذكور' : 'مسؤولية جميع الموجهات الإناث',
+                "تاريخ الزيارة المقترحة": item.visitDate || '-',
+                "فريق الزيارة": item.supervisors ? item.supervisors.map(s => `${s.name} (${s.specialty})`).join(' ، ') : "زيارة عامة"
+            }));
+            const wsDistribution = XLSX.utils.json_to_sheet(distSheetData);
+            XLSX.utils.book_append_sheet(wb, wsDistribution, "جدول الزيارات والمتابعة");
+
+            const supSheetData = supervisors.map((sup, idx) => ({
+                "م": idx + 1,
+                "اسم الموجه": sup.name,
+                "الجنس": sup.gender,
+                "التخصص": sup.specialty,
+                "رقم الهاتف": sup.phone,
+                "نطاق المسؤولية": sup.gender === 'ذكر' ? 'مسؤول عن جميع مدارس البنين' : 'مسؤولة عن جميع مدارس البنات',
+                "الزيارات المجدولة": distributionResults.filter(d => d.supervisors && d.supervisors.some(s => s.id === sup.id)).length
+            }));
+            const wsSupervisors = XLSX.utils.json_to_sheet(supSheetData);
+            XLSX.utils.book_append_sheet(wb, wsSupervisors, "كادر الموجهين ونطاقهم");
+
+            const schSheetData = schools.map((sch, idx) => ({
+                "م": idx + 1,
+                "اسم المدرسة": sch.name,
+                "الجنس": sch.gender,
+                "المرحلة": sch.stage,
+                "عدد الشعب": sch.sections,
+                "المنطقة": sch.zone,
+                "المشرفون المسؤولون": sch.gender === 'ذكور' ? 'جميع الموجهين الذكور' : 'جميع الموجهات الإناث'
+            }));
+            const wsSchools = XLSX.utils.json_to_sheet(schSheetData);
+            XLSX.utils.book_append_sheet(wb, wsSchools, "سجل المدارس الشرعية");
+
+            const fileName = `خطة_الإشراف_التربوي_الشامل_${new Date().toISOString().split('T')[0]}.xlsx`;
+            XLSX.writeFile(wb, fileName);
+            showToast("تم تصدير ملف Excel الشامل بنجاح!");
+        }
+
+        function downloadSupervisorsTemplate() {
+            const wb = XLSX.utils.book_new();
+            const data = [
+                { "اسم الموجه": "الشيخ أ. عبد الله الأحمد", "الجنس": "ذكر", "التخصص": "الفقه وأصوله", "الهاتف": "0933112233" },
+                { "اسم الموجه": "أ. فاطمة محمود العلي", "الجنس": "أنثى", "التخصص": "القرآن الكريم وعلومه", "الهاتف": "0944223344" }
+            ];
+            const ws = XLSX.utils.json_to_sheet(data);
+            XLSX.utils.book_append_sheet(wb, ws, "قالب الموجهين");
+            XLSX.writeFile(wb, "قالب_استيراد_الموجهين.xlsx");
+        }
+
+        function downloadSchoolsTemplate() {
+            const wb = XLSX.utils.book_new();
+            const data = [
+                { "اسم المدرسة": "ثانوية الإمام النووي الشرعية", "الجنس": "ذكور", "المرحلة": "مشترك (7 - بكالوريا)", "الشعب": 8, "المنطقة": "القطاع الشمالي", "التخصص المطلوب": "الفقه وأصوله" },
+                { "اسم المدرسة": "معهد خديجة الكبرى الشرعي للبنات", "الجنس": "إناث", "المرحلة": "ثانوي شرعي", "الشعب": 6, "المنطقة": "قطاع المركز", "التخصص المطلوب": "القرآن الكريم وعلومه" }
+            ];
+            const ws = XLSX.utils.json_to_sheet(data);
+            XLSX.utils.book_append_sheet(wb, ws, "قالب المدارس");
+            XLSX.writeFile(wb, "قالب_استيراد_المدارس.xlsx");
+        }
+
+        function downloadSchedulesTemplate() {
+            const wb = XLSX.utils.book_new();
+            const sampleSchoolName = (schools.length > 0) ? schools[0].name : "مدرسة النور الشرعية للبنين (1)";
+            
+            const data = [
+                { "المدرسة": sampleSchoolName, "الصف": "الصف السابع (أ)", "اليوم": "الأحد", "الحصة": 1, "المادة": "القرآن الكريم والتجويد" },
+                { "المدرسة": sampleSchoolName, "الصف": "الصف السابع (أ)", "اليوم": "الاثنين", "الحصة": 2, "المادة": "الفقه الشافعي" },
+                { "المدرسة": sampleSchoolName, "الصف": "الصف السابع (أ)", "اليوم": "الثلاثاء", "الحصة": 3, "المادة": "الحديث الشريف" },
+                { "المدرسة": sampleSchoolName, "الصف": "الصف السابع (أ)", "اليوم": "الأربعاء", "الحصة": 4, "المادة": "اللغة العربية" },
+                { "المدرسة": sampleSchoolName, "الصف": "الصف السابع (أ)", "اليوم": "الخميس", "الحصة": 5, "المادة": "الرياضيات" },
+                { "المدرسة": sampleSchoolName, "الصف": "الصف السابع (أ)", "اليوم": "الأحد", "الحصة": 6, "المادة": "العلوم العامة" },
+                { "المدرسة": sampleSchoolName, "الصف": "الصف السابع (أ)", "اليوم": "الأحد", "الحصة": 7, "المادة": "السيرة النبوية" }
+            ];
+            const ws = XLSX.utils.json_to_sheet(data);
+            XLSX.utils.book_append_sheet(wb, ws, "قالب جدول الحصص");
+            XLSX.writeFile(wb, "قالب_استيراد_جدول_الحصص.xlsx");
+        }
+
+        function prepareOfficialPrintReport() {
+            const container = document.getElementById('print-report-body');
+            const dateStr = new Date().toLocaleDateString('ar-SA', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+            document.getElementById('print-date-label').textContent = `تاريخ إصدار الوثيقة: ${dateStr}`;
+
+            let html = `
+                <table class="w-full text-right text-xs border border-collapse border-slate-300">
+                    <thead>
+                        <tr class="bg-slate-100">
+                            <th class="border border-slate-300 p-2">#</th>
+                            <th class="border border-slate-300 p-2">المدرسة الشرعية</th>
+                            <th class="border border-slate-300 p-2">الجنس</th>
+                            <th class="border border-slate-300 p-2">المرحلة</th>
+                            <th class="border border-slate-300 p-2">الشعب</th>
+                            <th class="border border-slate-300 p-2">المنطقة</th>
+                            <th class="border border-slate-300 p-2">نطاق المسؤولية</th>
+                            <th class="border border-slate-300 p-2">فريق الزيارة المقترحة</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+            `;
+
+            distributionResults.forEach((row, idx) => {
+                const team = row.supervisors && row.supervisors.length > 0
+                    ? row.supervisors.map(s => `${s.name} [${s.specialty}]`).join(' ، ')
+                    : 'متاحة لجميع موجهي الاختصاص';
+
+                const scopeText = row.gender === 'ذكور' ? 'جميع الموجهين الذكور' : 'جميع الموجهات الإناث';
+
+                html += `
+                    <tr>
+                        <td class="border border-slate-300 p-1.5 text-center">${idx + 1}</td>
+                        <td class="border border-slate-300 p-1.5 font-bold">${row.schoolName}</td>
+                        <td class="border border-slate-300 p-1.5 text-center">${row.gender}</td>
+                        <td class="border border-slate-300 p-1.5">${row.stage}</td>
+                        <td class="border border-slate-300 p-1.5 text-center">${row.sections}</td>
+                        <td class="border border-slate-300 p-1.5">${row.zone}</td>
+                        <td class="border border-slate-300 p-1.5 font-semibold text-emerald-800">${scopeText}</td>
+                        <td class="border border-slate-300 p-1.5">${team}</td>
+                    </tr>
+                `;
+            });
+
+            html += `</tbody></table>`;
+            container.innerHTML = html;
+        }
+
+        function openSupervisorModal(id = null) {
+            const modal = document.getElementById('modal-supervisor');
+            const title = document.getElementById('modal-sup-title');
+            document.getElementById('form-supervisor').reset();
+
+            if (id) {
+                const sup = supervisors.find(s => s.id === id);
+                if (sup) {
+                    title.textContent = "تعديل بيانات الموجه";
+                    document.getElementById('modal-sup-id').value = sup.id;
+                    document.getElementById('modal-sup-name').value = sup.name;
+                    document.getElementById('modal-sup-gender').value = sup.gender;
+                    document.getElementById('modal-sup-specialty').value = sup.specialty;
+                    document.getElementById('modal-sup-phone').value = sup.phone || '';
+                }
+            } else {
+                title.textContent = "إضافة موجه جديد";
+                document.getElementById('modal-sup-id').value = "";
+            }
+            modal.classList.remove('hidden');
+        }
+
+        function closeSupervisorModal() {
+            document.getElementById('modal-supervisor').classList.add('hidden');
+        }
+
+        function handleSupervisorFormSubmit(e) {
+            e.preventDefault();
+            const id = document.getElementById('modal-sup-id').value;
+            const name = document.getElementById('modal-sup-name').value.trim();
+            const gender = document.getElementById('modal-sup-gender').value;
+            const specialty = document.getElementById('modal-sup-specialty').value;
+            const phone = document.getElementById('modal-sup-phone').value.trim();
+
+            if (id) {
+                const sup = supervisors.find(s => s.id === id);
+                if (sup) {
+                    sup.name = name;
+                    sup.gender = gender;
+                    sup.specialty = specialty;
+                    sup.phone = phone;
+                    showToast("تم تحديث بيانات الموجه بنجاح");
+                }
+            } else {
+                supervisors.push({
+                    id: `sup-${Date.now()}`,
+                    name, gender, specialty, phone
+                });
+                showToast("تمت إضافة الموجه وتعيينه مسؤولاً عاماً بنجاح");
+            }
+
+            persistData();
+            renderAllViews();
+            closeSupervisorModal();
+        }
+
+        function editSupervisor(id) {
+            openSupervisorModal(id);
+        }
+
+        function deleteSupervisor(id) {
+            if (confirm("هل أنت متأكد من حذف هذا الموجه؟")) {
+                supervisors = supervisors.filter(s => s.id !== id);
+                distributionResults.forEach(d => {
+                    if (d.supervisors) {
+                        d.supervisors = d.supervisors.filter(s => s.id !== id);
+                    }
+                });
+                persistData();
+                renderAllViews();
+                showToast("تم حذف الموجه", "info");
+            }
+        }
+
+        function openSchoolModal(id = null) {
+            const modal = document.getElementById('modal-school');
+            const title = document.getElementById('modal-sch-title');
+            document.getElementById('form-school').reset();
+
+            if (id) {
+                const sch = schools.find(s => s.id === id);
+                if (sch) {
+                    title.textContent = "تعديل بيانات المدرسة الشرعية";
+                    document.getElementById('modal-sch-id').value = sch.id;
+                    document.getElementById('modal-sch-name').value = sch.name;
+                    document.getElementById('modal-sch-gender').value = sch.gender;
+                    document.getElementById('modal-sch-sections').value = sch.sections;
+                    document.getElementById('modal-sch-stage').value = sch.stage;
+                    document.getElementById('modal-sch-zone').value = sch.zone; document.getElementById('modal-sch-km').value = sch.km || '';
+                    document.getElementById('modal-sch-specialty').value = sch.targetSpecialty;
+                }
+            } else {
+                title.textContent = "إضافة مدرسة شرعية جديدة";
+                document.getElementById('modal-sch-id').value = "";
+                document.getElementById('modal-sch-sections').value = 6;
+            }
+            modal.classList.remove('hidden');
+        }
+
+        function closeSchoolModal() {
+            document.getElementById('modal-school').classList.add('hidden');
+        }
+
+        function handleSchoolFormSubmit(e) {
+            e.preventDefault();
+            const id = document.getElementById('modal-sch-id').value;
+            const name = document.getElementById('modal-sch-name').value.trim();
+            const gender = document.getElementById('modal-sch-gender').value;
+            const sections = parseInt(document.getElementById('modal-sch-sections').value) || 6;
+            const stage = document.getElementById('modal-sch-stage').value;
+            const zone = document.getElementById('modal-sch-zone').value.trim();
+            const km = document.getElementById('modal-sch-km').value;
+            const targetSpecialty = document.getElementById('modal-sch-specialty').value;
+
+            if (id) {
+                const sch = schools.find(s => s.id === id);
+                if (sch) {
+                    sch.name = name;
+                    sch.gender = gender;
+                    sch.sections = sections;
+                    sch.stage = stage;
+                    sch.zone = zone; sch.km = km;
+                    sch.targetSpecialty = targetSpecialty;
+                    showToast("تم تحديث بيانات المدرسة");
+                }
+            } else {
+                const newId = `sch-${Date.now()}`;
+                schools.push({
+                    id: newId,
+                    name, gender, sections, stage, zone, km, targetSpecialty
+                });
+                schedules[newId] = generateWeeklySchedule(sections);
+                showToast("تمت إضافة المدرسة وإدراجها تحت مسؤولية كادر التوجيه المعني");
+            }
+
+            persistData();
+            renderAllViews();
+            closeSchoolModal();
+        }
+
+        function editSchool(id) {
+            openSchoolModal(id);
+        }
+
+        function deleteSchool(id) {
+            if (confirm("هل أنت متأكد من حذف هذه المدرسة؟")) {
+                schools = schools.filter(s => s.id !== id);
+                distributionResults = distributionResults.filter(d => d.schoolId !== id);
+                delete schedules[id];
+                persistData();
+                renderAllViews();
+                showToast("تم حذف المدرسة بنجاح", "info");
+            }
+        }
+
+        function exportBackup(silent) {
+            const data = { app: 'supervision-plan', v: 1, date: new Date().toISOString(), distributionResults };
+            const blob = new Blob([JSON.stringify(data)], { type: 'application/json' });
+            const a = document.createElement('a');
+            a.href = URL.createObjectURL(blob);
+            a.download = 'نسخة_خطة_الزيارات_' + new Date().toISOString().slice(0, 10) + '.json';
+            document.body.appendChild(a); a.click(); a.remove();
+            setTimeout(() => URL.revokeObjectURL(a.href), 4000);
+            if (!silent) showToast('تم تنزيل النسخة الاحتياطية');
+        }
+
+        function restoreBackup(input) {
+            const f = input.files && input.files[0]; if (!f) return;
+            const r = new FileReader();
+            r.onload = () => {
+                try {
+                    const d = JSON.parse(r.result);
+                    if (!d || d.app !== 'supervision-plan' || !Array.isArray(d.distributionResults)) throw new Error('ملف غير صالح');
+                    const ids = new Set(schools.map(s => s.id));
+                    const ok = d.distributionResults.filter(x => ids.has(x.schoolId) && schools.find(s => s.id === x.schoolId).name === x.schoolName);
+                    if (!confirm('سيتم استبدال الخطة الحالية بـ ' + ok.length + ' زيارة من النسخة. هل تريد المتابعة؟')) return;
+                    distributionResults = ok; persistData(); renderAllViews();
+                    showToast('تمت استعادة ' + ok.length + ' زيارة');
+                } catch (e) { showToast('تعذّرت الاستعادة: ' + e.message, 'error'); }
+                input.value = '';
+            };
+            r.readAsText(f);
+        }
+
+        function confirmResetAll() {
+            if (!distributionResults.length) return showToast('الخطة فارغة أصلاً', 'info');
+            if (!confirm('سيتم تفريغ خطة الزيارات (' + distributionResults.length + ' مدرسة). ستُنزَّل نسخة احتياطية تلقائياً. متابعة؟')) return;
+            if (!confirm('تأكيد أخير: هل أنت متأكد من تصفير الخطة؟')) return;
+            exportBackup(true);
+            distributionResults = [];
+            persistData();
+            renderAllViews();
+            showToast('تم تصفير خطة الزيارات (حُفظت نسخة احتياطية)', 'info');
+        }
+
+        let toastTimer;
+        function showToast(msg, type = 'success') {
+            const toast = document.getElementById('toast');
+            const toastMsg = document.getElementById('toast-msg');
+            const toastIcon = document.getElementById('toast-icon');
+
+            toastMsg.textContent = msg;
+            if (type === 'error') {
+                toastIcon.className = "fa-solid fa-triangle-exclamation text-rose-400 text-base";
+            } else if (type === 'info') {
+                toastIcon.className = "fa-solid fa-circle-info text-sky-400 text-base";
+            } else {
+                toastIcon.className = "fa-solid fa-circle-check text-emerald-400 text-base";
+            }
+
+            toast.classList.remove('translate-y-24', 'opacity-0');
+            toast.classList.add('translate-y-0', 'opacity-100');
+
+            clearTimeout(toastTimer);
+            toastTimer = setTimeout(() => {
+                toast.classList.add('translate-y-24', 'opacity-0');
+                toast.classList.remove('translate-y-0', 'opacity-100');
+            }, 4000);
+        }
+    </script>
+    <script src="data-loader.js?v=18"></script>
+    <script>
+        // تحديث فوري: التسجيل + فحص النسخة الجديدة + إعادة التحميل تلقائياً
+        if ('serviceWorker' in navigator) {
+            window.addEventListener('load', () => {
+                const hadController = !!navigator.serviceWorker.controller;
+                navigator.serviceWorker.register('sw.js?v=12', { updateViaCache: 'none' }).then(reg => {
+                    reg.update();
+                    document.addEventListener('visibilitychange', () => { if (!document.hidden) reg.update(); });
+                }).catch(console.error);
+                let reloaded = false;
+                navigator.serviceWorker.addEventListener('controllerchange', () => {
+                    if (!hadController || reloaded) return;
+                    reloaded = true; location.reload();
+                });
+            });
+        }
+    </script>
+</body>
+</html>
