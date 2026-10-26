@@ -759,10 +759,17 @@
         const normZone = z => String(z || '').replace(/[ً-ْ]/g, '').replace(/[أإآ]/g, 'ا').replace(/ة/g, 'ه').replace(/ى/g, 'ي').replace(/\s+/g, ' ').trim();
         const toKm = v => { if (v === null || v === undefined || v === '') return NaN; const t = String(v).replace(/[٠-٩]/g, d => '٠١٢٣٤٥٦٧٨٩'.indexOf(d)).replace(/٫/g, '.').replace(/[^\d.]/g, ''); return t ? parseFloat(t) : NaN; };
         const CITY_RE = /مدينه حلب|^حلب$|^حلب |المركز|داخل المدينه|حلب المدينه/;
+        // مدرسة بلا مسافة تأخذ مسافة مدرسة أخرى من نفس المنطقة/البلدة (إن وُجدت)
+        let ZONE_KM = {};
+        function buildZoneKm() {
+            ZONE_KM = {};
+            schools.forEach(sc => { const z = normZone(sc.zone), k = toKm(sc.km); if (z && !isNaN(k) && (ZONE_KM[z] === undefined || k < ZONE_KM[z])) ZONE_KM[z] = k; });
+        }
         function classifySchool(sc) {
-            const zn = normZone(sc.zone), km = toKm(sc.km);
+            const zn = normZone(sc.zone); let km = toKm(sc.km), inferred = false;
             if (CITY_RE.test(zn)) return { cat: 'city', key: 'city', km: 0 };
-            if (!isNaN(km)) return { cat: km >= FAR_KM ? 'far' : 'near', key: zn || ('s-' + sc.id), km };
+            if (isNaN(km) && zn && ZONE_KM[zn] !== undefined) { km = ZONE_KM[zn]; inferred = true; }
+            if (!isNaN(km)) return { cat: km >= FAR_KM ? 'far' : 'near', key: zn || ('s-' + sc.id), km, inferred };
             return { cat: 'near', key: zn || ('s-' + sc.id), km: NaN, unknown: true };
         }
 
@@ -801,6 +808,10 @@
             const allWork = [].concat(datesBy.far, datesBy.city, datesBy.near).sort();
             if (allWork.length === 0) { showToast("الفترة المحددة كلها عطلة (جمعة/سبت). وسّع الفترة.", "error"); return; }
 
+            buildZoneKm();
+            const unk = schools.filter(sc => classifySchool(sc).unknown);
+            if (unk.length && !confirm('⚠ ' + unk.length + ' مدرسة بلا مسافة معروفة، ولا يمكن تحديد إن كانت قريبة أم بعيدة:\n\n' + unk.slice(0, 8).map(s => '• ' + s.name).join('\n') + (unk.length > 8 ? '\n… و' + (unk.length - 8) + ' أخرى' : '') + '\n\nموافق = متابعة ووضعها مؤقتاً في «الريف القريب» مع تنبيه.\nإلغاء = إيقاف الجدولة لإضافة المسافة أولاً (تعديل المدرسة ← المسافة).')) return;
+
             distributionResults = [];
             const supervisorVisitCount = {};
             supervisors.forEach(sup => supervisorVisitCount[sup.id] = 0);
@@ -827,28 +838,34 @@
                 const free = pool.filter(s => !(busy[dateStr] && busy[dateStr].has(s.id)));
                 const cand = (allMode || free.length === 0) ? pool : free;
                 const hasSpec = (sup) => (window.supHasSpec ? supHasSpec(sup, school.targetSpecialty) : sup.specialty === school.targetSpecialty);
-                const team = [];
+                // من لديه حصص في اختصاصه بهذه المدرسة: يوم الزيارة أولاً، ثم خلال الأسبوع، ثم من لا حصص له (مع تنبيه)
+                const ci = sup => window.supClassInfo ? supClassInfo(sup, school, dateStr) : { week: 1, day: 1 };
+                const tiers = [cand.filter(s => ci(s).day > 0), cand.filter(s => ci(s).day === 0 && ci(s).week > 0), cand.filter(s => ci(s).week === 0)];
+                const sortLoad = (a, b) => supervisorVisitCount[a.id] - supervisorVisitCount[b.id];
+                const team = [], used = new Set();
                 if (allMode) {
-                    cand.slice().sort((a, b) => hasSpec(b) - hasSpec(a)).forEach(sup => team.push(sup));
+                    (tiers.find(t => t.length) || []).slice().sort((a, b) => hasSpec(b) - hasSpec(a)).forEach(sup => team.push(sup));
                 } else {
-                    const used = new Set();
-                    const first = cand.filter(sup => hasSpec(sup)).sort((a, b) => supervisorVisitCount[a.id] - supervisorVisitCount[b.id])[0];
-                    if (first) { team.push(first); used.add(first.specialty); }
-                    while (team.length < teamSize) {
-                        const nx = cand.filter(sup => !team.some(m => m.id === sup.id) && !used.has(sup.specialty))
-                            .sort((a, b) => supervisorVisitCount[a.id] - supervisorVisitCount[b.id])[0]
-                            || cand.filter(sup => !team.some(m => m.id === sup.id)).sort((a, b) => supervisorVisitCount[a.id] - supervisorVisitCount[b.id])[0];
-                        if (!nx) break;
-                        team.push(nx); used.add(nx.specialty);
-                    }
+                    tiers.forEach(t => {
+                        if (team.length >= teamSize) return;
+                        if (!team.length) { const first = t.filter(hasSpec).sort(sortLoad)[0]; if (first) { team.push(first); used.add(first.specialty); } }
+                        while (team.length < teamSize) {
+                            const rest = t.filter(s => !team.some(m => m.id === s.id));
+                            const nx = rest.filter(s => !used.has(s.specialty)).sort(sortLoad)[0] || rest.sort(sortLoad)[0];
+                            if (!nx) break;
+                            team.push(nx); used.add(nx.specialty);
+                        }
+                    });
                 }
+                const warnOf = sup => { const c = ci(sup); return c.week === 0 ? 'لا توجد حصص لاختصاصه في هذه المدرسة' : (c.day === 0 ? 'لا حصص لاختصاصه يوم الزيارة' + (c.dn ? ' (' + c.dn + ')' : '') + ' — يتوفر: ' + (c.days || []).join('، ') : ''); };
                 team.forEach(s => { supervisorVisitCount[s.id]++; (busy[dateStr] = busy[dateStr] || new Set()).add(s.id); });
                 const d = parseD(dateStr);
                 distributionResults.push({
                     schoolId: school.id, schoolName: school.name, gender: school.gender, stage: school.stage, sections: school.sections,
                     zone: school.zone, km: school.km, category: info.cat, categoryLabel: CAT_LABEL[info.cat],
                     visitDate: dateStr, dayName: ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'][d.getDay()],
-                    supervisors: team.map(s => ({ id: s.id, name: s.name, specialty: s.specialty, phone: s.phone, gender: s.gender }))
+                    kmUnknown: !!classifySchool(school).unknown,
+                    supervisors: team.map(s => ({ id: s.id, name: s.name, specialty: s.specialty, phone: s.phone, gender: s.gender, warn: warnOf(s) }))
                 });
             };
 
@@ -876,7 +893,9 @@
             persistData();
             renderAllViews();
             switchView('distribution');
-            if (unknownCount) warnings.push(unknownCount + ' مدرسة بلا مسافة/منطقة معروفة وُضعت في الريف القريب. أضف عمود «المسافة» لها.');
+            if (unknownCount) warnings.push(unknownCount + ' مدرسة بلا مسافة معروفة وُضعت مؤقتاً في الريف القريب (انظر التنبيهات أعلى الجدول).');
+            const noCls = distributionResults.reduce((t, r) => t + (r.supervisors || []).filter(s => s.warn).length, 0);
+            if (noCls) warnings.push(noCls + ' موجه في الفرق بلا حصص يوم الزيارة (انظر التنبيهات).');
             showToast(warnings.length ? 'تمت الجدولة. ' + warnings.join(' | ') : 'تمت الجدولة الجغرافية لجميع المدارس بنجاح!', warnings.length ? 'info' : 'success');
         }
 
@@ -957,7 +976,7 @@
                         <td class="p-3 font-bold text-slate-900">${row.schoolName}</td>
                         <td class="p-3 text-center">${genderBadge}</td>
                         <td class="p-3 text-slate-600">${row.stage} (${row.sections} شعب)</td>
-                        <td class="p-3 text-slate-600">${row.zone}${row.categoryLabel ? `<div class="text-[10px] text-slate-400">${row.categoryLabel}${row.km ? ' · ' + row.km + ' كم' : ''}</div>` : ''}</td>
+                        <td class="p-3 text-slate-600">${row.zone}${row.categoryLabel ? `<div class="text-[10px] text-slate-400">${row.categoryLabel}${row.km ? ' · ' + row.km + ' كم' : ''}</div>` : ''}${row.kmUnknown ? '<div class="text-[10px] text-red-600 font-bold">⚠ المسافة غير محددة</div>' : ''}</td>
                         <td class="p-3">${generalScopeBadge}</td>
                         <td class="p-3 font-semibold text-emerald-800">${row.visitDate ? (row.dayName ? row.dayName + ' ' : '') + row.visitDate : 'زيارة دورية مفتوحة'}</td>
                         <td class="p-3">${teamHtml}</td>
@@ -1780,7 +1799,7 @@
             }, 4000);
         }
     </script>
-    <script src="data-loader.js?v=20"></script>
+    <script src="data-loader.js?v=21"></script>
     <script>
         // تحديث فوري: التسجيل + فحص النسخة الجديدة + إعادة التحميل تلقائياً
         if ('serviceWorker' in navigator) {
