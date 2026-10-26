@@ -39,11 +39,9 @@
     return { stage, label, sec, track };
   }
 
-  // مفاتيح سريعة: مقارن عربي واحد بدل localeCompare (أبطأ بعشرات المرات)
   const COLL = new Intl.Collator('ar');
   const IS_MOB = () => window.matchMedia('(max-width: 767px)').matches;
 
-  // محلل CSV خفيف (بديل عن SheetJS الثقيل على الجوال)
   function parseCSV(t) {
     if (t.charCodeAt(0) === 0xFEFF) t = t.slice(1);
     const rows = []; let row = [], f = '', q = false, i = 0; const L = t.length;
@@ -86,14 +84,13 @@
       if (!res.ok) throw new Error('HTTP ' + res.status);
       text = await res.text();
     } catch (e) { throw new Error(label + ' — فشل الاتصال بالرابط (' + e.message + ')'); }
-    if (/^\s*<(!doctype|html)/i.test(text)) throw new Error(label + ' — الرابط يعيد صفحة ويب لا CSV (غير منشور أو ليس رابط النشر على الويب)');
+    if (/^\s*<(!doctype|html)/i.test(text)) throw new Error(label + ' — الرابط يعيد صفحة ويب لا CSV');
     return text;
   }
 
-  // ---- كاش محلي: يعرض آخر بيانات فوراً ثم يحدّثها في الخلفية ----
   const CK = 'sup_app_data_v1';
   const readCache = () => { try { const j = JSON.parse(localStorage.getItem(CK) || 'null'); return j && j.sup && j.sch && j.u === CFG.SUPERVISORS_CSV + '|' + CFG.SCHEDULE_CSV ? j : null; } catch (e) { return null; } };
-  const saveCache = d => { try { localStorage.setItem(CK, JSON.stringify({ sup: d.sup, sch: d.sch, u: CFG.SUPERVISORS_CSV + '|' + CFG.SCHEDULE_CSV })); } catch (e) { /* الكاش اختياري */ } };
+  const saveCache = d => { try { localStorage.setItem(CK, JSON.stringify({ sup: d.sup, sch: d.sch, u: CFG.SUPERVISORS_CSV + '|' + CFG.SCHEDULE_CSV })); } catch (e) { } };
   async function fetchBoth() {
     const res = await Promise.allSettled([fetchText(CFG.SUPERVISORS_CSV, 'ورقة الموجهين'), fetchText(CFG.SCHEDULE_CSV, 'ورقة الجدول')]);
     const errs = res.filter(r => r.status === 'rejected').map(r => r.reason.message);
@@ -108,10 +105,10 @@
       gender: /أنث|انث/.test(String(r['الجنس'])) ? 'أنثى' : 'ذكر',
       specialty: String(r['التخصص'] || '').trim(), phone: String(r['الهاتف'] || '-').trim()
     }));
-    if (!schRows[0] || !('المدرسة' in schRows[0])) throw new Error('ورقة الجدول: لا يوجد عمود «المدرسة» (الأعمدة الموجودة: ' + Object.keys(schRows[0] || {}).join('، ') + ')');
-    if (!supRows[0] || !('اسم الموجه' in supRows[0])) throw new Error('ورقة الموجهين: لا يوجد عمود «اسم الموجه» (الأعمدة الموجودة: ' + Object.keys(supRows[0] || {}).join('، ') + ')');
+    if (!schRows[0] || !('المدرسة' in schRows[0])) throw new Error('ورقة الجدول: لا يوجد عمود «المدرسة»');
+    if (!supRows[0] || !('اسم الموجه' in supRows[0])) throw new Error('ورقة الموجهين: لا يوجد عمود «اسم الموجه»');
     const names = [...new Set(schRows.map(r => String(r['المدرسة'] || '').trim()).filter(Boolean))].sort(COLL.compare);
-    const idOf = {}; schools = []; schedules = []; schedules = {}; FLAT = [];
+    const idOf = {}; schools = []; schedules = {}; FLAT = [];
     names.forEach((nm, i) => {
       const ov = (CFG.SCHOOL_GENDER_OVERRIDES || {})[nm];
       idOf[nm] = 'sch-' + i;
@@ -130,13 +127,11 @@
     schools.forEach(s => { s.sections = new Set(schedules[s.id].map(x => x.grade)).size; });
     distributionResults = distributionResults.filter(d => idOf[d.schoolName] === d.schoolId);
     window.SHEETS_MODE = true;
-    // الترتيب مرة واحدة هنا بدل كل عملية فلترة
     FLAT.sort((a, b) => COLL.compare(a.school, b.school) || DAYS.indexOf(a.day) - DAYS.indexOf(b.day) || a.period - b.period);
     buildFilterOptions(); applyFilters();
   }
   window.loadFromSheets = async function () { const d = await fetchBoth(); buildData(d); saveCache(d); };
 
-  // ---------- تبويب الفلترة ----------
   const inp = 'w-full text-xs border border-slate-300 rounded-xl px-3 py-2 bg-slate-50';
   const field = (l, el) => `<div><label class="block text-[11px] font-bold text-slate-600 mb-1">${l}</label>${el}</div>`;
   function injectTab() {
@@ -239,8 +234,7 @@
   window.LIMIT_MORE = () => { LIMIT += IS_MOB() ? 60 : 500; renderFilter(); };
   window.resetFilters = function () {
     ['f-school', 'f-day', 'f-period', 'f-stage', 'f-section', 'f-subject', 'f-teacher', 'f-text'].forEach(id => document.getElementById(id).value = '');
-    refreshLists();
-    document.getElementById('f-noteacher').checked = false; applyFilters();
+    refreshLists(); document.getElementById('f-noteacher').checked = false; applyFilters();
   };
   window.exportFiltered = function () {
     if (!FILTERED.length) return showToast('لا توجد نتائج للتصدير', 'error');
@@ -249,7 +243,6 @@
     XLSX.writeFile(wb, 'برنامج_الدوام_المفلتر.xlsx');
   };
 
-  // ---------- تكوين فريق الزيارة يدوياً ----------
   const SPEC = [
     [/انكليز|انجليز/, /انكليز|انجليز|انكيز/], [/عربي/, /عربي|نحو|ادب|بلاغ|املاء|قواعد|نصوص|تعبير|قراءه|صرف|عروض|مطالعه/],
     [/رياضيات/, /رياضيات|جبر|هندس|تفاضل|احصاء|حساب/], [/احياء/, /احياء|حياتيه|بيولوج|علوم/],
@@ -257,20 +250,17 @@
     [/جغراف/, /جغراف|اجتماعيات/], [/تاريخ/, /تاريخ|اجتماعيات/],
     [/شريع|شرع|فقه|عقيد|قران|حديث|اصول|فرائض|تفسير|سيره|تجويد|دعوه|خطابه|حوار|مواريث|توحيد|مصطلح|تشريع/, /عقيد|فقه|حديث|تفسير|قران|سيره|تجويد|تجو|دعوه|خطابه|اصول|شرع|شريع|اسلامي|توحيد|شمائل|استحفاظ|فرائض|تلاوه|مواريث|مصطلح/]
   ];
-  // يدعم أكثر من اختصاص في خانة واحدة مفصولة بـ «،» أو «,» أو «/» أو «+» أو «|» أو سطر جديد أو « و »
   const splitSpecs = spec => String(spec || '').split(/[،,؛;\/\\|+\n]|\s+و\s+/).map(x => x.trim()).filter(Boolean);
   const LBL = ['لغة إنكليزية', 'لغة عربية', 'رياضيات', 'علم أحياء', 'فيزياء وكيمياء', 'فلسفة', 'جغرافيا', 'تاريخ', 'شريعة'];
-  // الشريعة لها الأولوية: «الأصول وتاريخ التشريع» شرعي وليس تاريخاً
   const specIdx = t => SPEC[SPEC.length - 1][0].test(t) ? SPEC.length - 1 : SPEC.findIndex(x => x[0].test(t));
   const oneRx = part => { const t = n(part), i = specIdx(t); return i >= 0 ? SPEC[i][1] : new RegExp(t.split(' ').filter(w => w.length > 2).join('|') || '$^'); };
   const specKey = part => { const i = specIdx(n(part)); return i >= 0 ? LBL[i] : String(part).trim(); };
-  // ===== مطابقة حرفية لأسماء المواد كما هي في ورقة الجدول (للاختصاصات الشرعية الدقيقة) =====
   const STOP = new Set(['اسلامي', 'اسلاميه', 'علوم', 'علم', 'ماده', 'في', 'من', 'و']);
   const SYN = { مواريث: 'فرائض', فرايض: 'فرائض' };
   const toks = t => n(t).replace(/ئ/g, 'ي').replace(/ؤ/g, 'و').replace(/[.،,;:+\/\\\-()]/g, ' ').split(' ')
     .map(w => w.replace(/^و(?=.{3,})/, '').replace(/^ال/, '')).map(w => SYN[w] || w).filter(w => w && !STOP.has(w));
   const SH = SPEC.length - 1;
-  const GENERIC_SH = new Set(['شريعه', 'شرعيه', 'شرعي', 'ديني', 'دينيه', 'دين', 'تربيه']);   // «شريعة» وحدها = كل المواد الشرعية
+  const GENERIC_SH = new Set(['شريعه', 'شرعيه', 'شرعي', 'ديني', 'دينيه', 'دين', 'تربيه']);
   const exactSh = part => specIdx(n(part)) === SH && !(toks(part).length === 1 && GENERIC_SH.has(toks(part)[0]));
   const chipKey = part => exactSh(part) ? toks(part).join(' ') : specKey(part);
   const chipText = part => exactSh(part) ? String(part).trim().replace(/[.\s]+$/, '') : specKey(part);
@@ -282,7 +272,7 @@
         const P = toks(part);
         return subj => { const S = toks(subj); if (!S.length || !P.length) return false; return (S.every(w => P.includes(w)) && (S.length > 1 || SPEC[SH][0].test(S[0]))) || P.every(w => S.includes(w)); };
       }
-      const rx = oneRx(part), nonSh = specIdx(n(part)) >= 0 && specIdx(n(part)) !== SH;   // مادة شرعية (مثل «تاريخ التشريع») لا تُحسب لموجه التاريخ/اللغة…
+      const rx = oneRx(part), nonSh = specIdx(n(part)) >= 0 && specIdx(n(part)) !== SH;
       return subj => rx.test(n(subj)) && !(nonSh && SPEC[SH][0].test(n(subj)));
     });
     return subj => fns.some(f => f(subj));
@@ -298,7 +288,7 @@
     document.getElementById('view-filter').insertAdjacentHTML('beforebegin', `
     <div id="view-team" class="hidden space-y-4">
       <div class="bg-white p-4 rounded-2xl border border-slate-200 space-y-3">
-        <h3 class="text-base font-bold text-slate-900">تكوين فريق الزيارة (تحدده أنت حسب المتاح في المدرسة)</h3>
+        <h3 class="text-base font-bold text-slate-900">تكوين فريق الزيارة</h3>
         <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
           ${field('المدرسة', `<div class="relative mb-1.5"><i class="fa-solid fa-magnifying-glass absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs"></i><input id="t-sq" type="search" autocomplete="off" placeholder="ابحث عن مدرسة…" class="${inp} pr-8"></div><select id="t-school" class="${inp}"></select><div id="t-sqc" class="text-[11px] text-slate-400 mt-1"></div>`)}
           ${field('يوم الزيارة', `<select id="t-day" class="${inp}">${'<option value="">— اختر اليوم —</option>' + DAYS.slice(0, 5).map(d => `<option>${d}</option>`).join('')}</select>`)}
@@ -369,60 +359,36 @@
     const days = [...new Set(rows.map(r => r.day))];
     let warn = '';
     if (!weekly) warn = 'لا توجد حصص لاختصاصه في هذه المدرسة';
-    else if (onDay === 0) warn = `لا حصص لاختصاصه يوم ${dy} (يتوفر: ${days.join('، ')})`;
-    const subs = {}; (dy ? rows.filter(r => r.day === dy) : rows).forEach(r => { const k = String(r.subject || '').trim() || '—'; subs[k] = (subs[k] || 0) + 1; });
-    return { weekly, onDay, warn, subs };
-  }
-  function renderTeam() {
-    const sc = curSchool(); if (!sc) return;
-    const all = document.getElementById('t-all').checked;
-    const q = n(document.getElementById('t-q').value), onlySel = document.getElementById('t-sel').checked;
-    const base = supervisors.filter(s => all || (sc.gender === 'ذكور') === (s.gender === 'ذكر'));
-    const list = base.filter(s => (!q || n(s.name + ' ' + s.specialty + ' ' + specLabel(s)).includes(q)) && (!onlySel || TEAM.has(s.id)));
-    document.getElementById('t-qc').textContent = (q || onlySel) ? `${list.length} من ${base.length}` : '';
-    const warns = [];
-    document.getElementById('t-body').innerHTML = list.map(s => {
-      const st = supStats(s, sc), on = TEAM.has(s.id);
-      if (on && st.warn) warns.push(`${s.name} (${specLabel(s)}): ${st.warn}`);
+    else if (onDay === 0) warn = `لا حصص لاختصاصه يوم ${dy}`; const subs = {}; (dy ? rows.filter(r => r.day === dy) : rows).forEach(r => { const k = String(r.subject \vert{}\vert{} '').trim() \vert{}\vert{} '—'; subs[k] = (subs[k] \vert{}\vert{} 0) + 1; }); return { weekly, onDay, warn, subs }; } function renderTeam() { const sc = curSchool(); if (!sc) return; const all = document.getElementById('t-all').checked; const q = n(document.getElementById('t-q').value), onlySel = document.getElementById('t-sel').checked; const base = supervisors.filter(s => all \vert{}\vert{} (sc.gender === 'ذكور') === (s.gender === 'ذكر')); const list = base.filter(s => (!q \vert{}\vert{} n(s.name + ' ' + s.specialty + ' ' + specLabel(s)).includes(q)) && (!onlySel \vert{}\vert{} TEAM.has(s.id))); document.getElementById('t-qc').textContent = (q \vert{}\vert{} onlySel) ? `${list.length} من ${base.length}` : ''; const warns = []; document.getElementById('t-body').innerHTML = list.map(s => { const st = supStats(s, sc), on = TEAM.has(s.id); if (on && st.warn) warns.push(`${s.name} (${specLabel(s)}):${st.warn}`);
       const badge = st.warn ? `<span class="text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-2 py-0.5">⚠ ${esc(st.warn)}</span>` : '<span class="text-emerald-700">✓ متاح</span>';
       return `<tr class="${on ? 'bg-emerald-50/60' : ''}"><td class="p-3"><input type="checkbox" data-sup="${s.id}" ${on ? 'checked' : ''}></td><td class="p-3 font-semibold">${esc(s.name)}</td><td class="p-3">${esc(specLabel(s))}</td><td class="p-3">${st.weekly}</td><td class="p-3">${st.onDay ?? '—'}</td><td class="p-3">${badge}</td></tr>`;
     }).join('') || '<tr><td colspan="6" class="p-6 text-center text-slate-400">لا يوجد موجهون</td></tr>';
+    
     document.getElementById('t-cards').innerHTML = list.map(s => {
       const st = supStats(s, sc), on = TEAM.has(s.id), bad = !!st.warn;
-      return `<label class="block bg-white rounded-2xl border-2 p-3 cursor-pointer transition ${on ? (bad ? 'border-amber-400 bg-amber-50/60' : 'border-emerald-500 bg-emerald-50/60') : 'border-slate-200'}">
+      return `<label class="block bg-white rounded-2xl border-2 p-4 cursor-pointer transition relative overflow-hidden ${on ? (bad ? 'border-amber-400 bg-amber-50' : 'border-emerald-500 bg-emerald-50') : 'border-slate-200'}">
         <div class="flex items-start gap-3">
-          <input type="checkbox" data-sup="${s.id}" ${on ? 'checked' : ''} class="mt-1 w-6 h-6 accent-emerald-600 shrink-0">
+          <div class="pt-0.5 shrink-0"><input type="checkbox" data-sup="${s.id}" ${on ? 'checked' : ''} class="w-5 h-5 accent-emerald-600"></div>
           <div class="flex-1 min-w-0">
-            <div class="font-bold text-sm text-slate-900">${esc(s.name)}</div>
-            <div class="text-xs text-emerald-700 font-semibold">${esc(specLabel(s))}</div>
+            <div class="font-bold text-sm text-slate-900 leading-snug whitespace-normal break-words">${esc(s.name)}</div>
+            <div class="text-xs text-emerald-700 font-semibold mt-1">${esc(specLabel(s))}</div>
             <div class="flex flex-wrap gap-1.5 mt-2 text-[11px]">
-              <span class="bg-slate-100 rounded-lg px-2 py-0.5">أسبوعياً: <b>${st.weekly}</b></span>
-              ${st.onDay === null ? '' : `<span class="bg-slate-100 rounded-lg px-2 py-0.5">يوم الزيارة: <b>${st.onDay}</b></span>`}
+              <span class="bg-white border border-slate-200 rounded-lg px-2 py-1 shadow-xs">أسبوعياً: <b class="text-slate-800">${st.weekly}</b></span>${st.onDay === null ? '' : `<span class="bg-white border border-slate-200 rounded-lg px-2 py-1 shadow-xs">يوم الزيارة: <b class="text-slate-800">${st.onDay}</b></span>`}
             </div>
-            ${Object.keys(st.subs).length ? `<div class="mt-1.5 text-[11px] text-slate-500">المواد${document.getElementById('t-day').value ? ' يوم الزيارة' : ''}: ${Object.entries(st.subs).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([k, v]) => esc(k) + ' (' + v + ')').join('، ')}</div>` : ''}
-            <div class="mt-2 text-[11px] ${bad ? 'text-amber-700 font-bold' : 'text-emerald-700'}">${bad ? '⚠ ' + esc(st.warn) : '✓ لديه حصص متاحة'}</div>
+            ${Object.keys(st.subs).length ? `<div class="mt-2 text-[11px] text-slate-500 bg-white/50 p-2 rounded-lg">المواد${document.getElementById('t-day').value ? ' يوم الزيارة' : ''}: ${Object.entries(st.subs).sort((a, b) => b[1] - a[1]).slice(0, 8).map(([k, v]) => esc(k) + ' (' + v + ')').join('، ')}</div>` : ''}
+            <div class="mt-2 text-[11px] font-bold ${bad ? 'text-amber-700' : 'text-emerald-700'}">${bad ? '⚠ ' + esc(st.warn) : '✓ لديه حصص متاحة'}</div>
           </div>
         </div>
       </label>`;
     }).join('');
+
     document.getElementById('t-count').textContent = TEAM.size;
     const dy = document.getElementById('t-day').value, rows = (schedules[sc.id] || []).filter(r => !dy || r.day === dy);
     const chipMap = new Map(); supervisors.forEach(s => splitSpecs(s.specialty).forEach(p => { const k = chipKey(p); if (k && !chipMap.has(k)) chipMap.set(k, chipText(p)); }));
     const specs = [...chipMap.values()].map(sp => { const mt = subjMatch(sp); return [sp, rows.filter(r => mt(r.subject)).length]; });
     document.getElementById('t-avail').innerHTML = `<b>المتاح في المدرسة ${dy ? 'يوم ' + dy : 'خلال الأسبوع'}:</b> ` + specs.map(([sp, c]) =>
-      `<span class="inline-block m-0.5 px-2 py-0.5 rounded-lg border ${c ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-rose-50 border-rose-200 text-rose-700'}">${esc(sp)}: ${c} حصة</span>`).join('');
-    document.getElementById('t-alert').innerHTML = warns.length ? `<div class="bg-amber-50 border border-amber-300 text-amber-900 rounded-xl p-3 text-xs space-y-1"><b>تنبيه: أعضاء مختارون بلا حصص من اختصاصهم</b>${warns.map(w => `<div>• ${esc(w)}</div>`).join('')}</div>` : '';
-  }
-  window.saveTeam = function () {
-    const sc = curSchool(); if (!sc) return;
-    const team = supervisors.filter(s => TEAM.has(s.id)).map(s => ({ id: s.id, name: s.name, specialty: specLabel(s), phone: s.phone, gender: s.gender, warn: supStats(s, sc).warn }));
-    const entry = { schoolId: sc.id, schoolName: sc.name, gender: sc.gender, stage: sc.stage, sections: sc.sections, zone: sc.zone,
-      visitDate: document.getElementById('t-date').value || document.getElementById('t-day').value, supervisors: team, manual: true };
-    const i = distributionResults.findIndex(d => d.schoolId === sc.id);
-    i >= 0 ? distributionResults[i] = entry : distributionResults.push(entry);
-    persistData(); renderAllViews();
-    const w = team.filter(t => t.warn).length;
-    showToast(w ? `تم الحفظ (${team.length} أعضاء) مع ${w} تنبيه` : `تم حفظ فريق الزيارة (${team.length} أعضاء)`, w ? 'info' : 'success');
+      `<span class="inline-block m-0.5 px-2 py-0.5 rounded-lg border ${c ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-rose-50 border-rose-200 text-rose-700'}">${esc(sp)}:${c} حصة</span>`).join('');
+    document.getElementById('t-alert').innerHTML = warns.length ? `<div class="bg-amber-50 border border-amber-300 text-amber-900 rounded-xl p-3 text-xs space-y-1"><b>تنبيه: أعضاء مختارون بلا حصص</b>${warns.map(w => `<div>• ${esc(w)}</div>`).join('')}</div>` : ''; } window.saveTeam = function () { const sc = curSchool(); if (!sc) return; const team = supervisors.filter(s => TEAM.has(s.id)).map(s => ({ id: s.id, name: s.name, specialty: specLabel(s), phone: s.phone, gender: s.gender, warn: supStats(s, sc).warn })); const entry = { schoolId: sc.id, schoolName: sc.name, gender: sc.gender, stage: sc.stage, sections: sc.sections, zone: sc.zone, visitDate: document.getElementById('t-date').value \vert{}\vert{} document.getElementById('t-day').value, supervisors: team, manual: true }; const i = distributionResults.findIndex(d => d.schoolId === sc.id); i >= 0 ? distributionResults[i] = entry : distributionResults.push(entry); persistData(); renderAllViews(); const w = team.filter(t => t.warn).length; showToast(w ? `تم الحفظ (${team.length} أعضاء) مع ${w} تنبيه` : `تم حفظ فريق الزيارة (${team.length} أعضاء)`, w ? 'info' : 'success');
   };
   window.clearTeam = function () {
     const sc = curSchool(); if (!sc) return;
@@ -437,7 +403,6 @@
     persistData(); renderAllViews();
   };
 
-  // ---------- بطاقات جدول الزيارات للجوال ----------
   const _renderDist = window.renderDistributionTable;
   window.renderDistributionTable = function () {
     _renderDist();
@@ -453,15 +418,13 @@
         <div class="text-xs text-emerald-800 font-semibold mt-1"><i class="fa-solid fa-calendar-day ml-1"></i>${esc(r.visitDate || 'زيارة دورية مفتوحة')}</div>
         <div class="mt-2 flex flex-wrap gap-1">${(r.supervisors || []).map(s => `<span class="bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-[11px]"><b>${esc(s.name)}</b> <span class="text-emerald-700">(${esc(specLabel(s))})</span>${s.warn ? ' <span class="text-amber-500" title="' + esc(s.warn) + '">⚠</span>' : ''}</span>`).join('') || '<span class="text-amber-600 text-[11px]">لم يُحدَّد فريق</span>'}</div>
         <div class="grid grid-cols-3 gap-2 mt-3">
-          <button onclick="openTeamBuilder('${r.schoolId}')" class="bg-emerald-600 text-white text-xs font-bold rounded-xl py-2.5"><i class="fa-solid fa-people-group ml-1"></i>تحديد الفريق</button>
+          <button onclick="openTeamBuilder('${r.schoolId}')" class="bg-emerald-600 text-white text-xs font-bold rounded-xl py-2.5"><i class="fa-solid fa-people-group ml-1"></i>الفريق</button>
           <button onclick="viewSchoolScheduleModal('${r.schoolId}')" class="bg-slate-100 text-slate-700 text-xs font-bold rounded-xl py-2.5"><i class="fa-solid fa-calendar-check ml-1"></i>الحصص</button>
           <button onclick="openWaReport('${r.schoolId}')" class="bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-bold rounded-xl py-2.5"><i class="fa-brands fa-whatsapp ml-1"></i>تقرير</button>
         </div>
       </div>`).join('') || '<div class="p-8 text-center text-slate-400 text-xs bg-white rounded-2xl border border-slate-200">لا يوجد جدول زيارات حالياً</div>';
   };
 
-
-  // ---------- تقرير واتساب ----------
   const WA_KEY = 'sup_wa_phone';
   const NUM = ['1️⃣', '2️⃣', '3️⃣', '4️⃣', '5️⃣', '6️⃣', '7️⃣', '8️⃣', '9️⃣'];
   const fmtDate = v => {
@@ -482,16 +445,7 @@
     out.push(opt.schoolId ? '*📋 تقرير زيارة مدرسة*' : '*📋 خطة الزيارات الإشرافية*');
     out.push('دائرة الإشراف والتوجيه التربوي');
     out.push('🗓 ' + today);
-    if (!opt.schoolId) out.push(`📌 المجدولة: ${scheduled.length} من ${(typeof schools !== 'undefined' ? schools : []).length} مدرسة`);
-    if (!list.length) { out.push('', 'لا توجد زيارات مجدولة ضمن هذا الاختيار.'); return out.join('\n'); }
-    let lastG = null, i = 0;
-    list.forEach(r => {
-      if (r.gender !== lastG && !opt.schoolId) { lastG = r.gender; i = 0; out.push('', r.gender === 'ذكور' ? '*— مدارس البنين —*' : '*— مدارس البنات —*'); }
-      i++;
-      out.push('', `${NUM[i - 1] || i + '.'} *${r.schoolName}*`);
-      out.push('📅 ' + fmtDate(r.visitDate));
-      const sup = r.supervisors || [], long = sup.length > 6;
-      const team = (long ? `جميع الموجهين (${sup.length}): ` : '') + sup.map(x => x.name + (!long && x.specialty ? ' (' + x.specialty + ')' : '')).join('، ');
+    if (!opt.schoolId) out.push(`📌 المجدولة: ${scheduled.length} من ${(typeof schools !== 'undefined' ? schools : []).length} مدرسة`); if (!list.length) { out.push('', 'لا توجد زيارات مجدولة ضمن هذا الاختيار.'); return out.join('\n'); } let lastG = null, i = 0; list.forEach(r => { if (r.gender !== lastG && !opt.schoolId) { lastG = r.gender; i = 0; out.push('', r.gender === 'ذكور' ? '*— مدارس البنين —*' : '*— مدارس البنات —*'); } i++; out.push('', `${NUM[i - 1] || i + '.'} *${r.schoolName}*`); out.push('📅 ' + fmtDate(r.visitDate)); const sup = r.supervisors \vert{}\vert{} [], long = sup.length > 6; const team = (long ? `جميع الموجهين (${sup.length}): ` : '') + sup.map(x => x.name + (!long && x.specialty ? ' (' + x.specialty + ')' : '')).join('، ');
       out.push('👥 ' + (team || 'لم يُحدَّد الفريق بعد'));
       const warns = (r.supervisors || []).filter(x => x.warn).length;
       if (warns) out.push('⚠️ يوجد تنبيه على الفريق، يُراجع قبل الزيارة');
@@ -504,411 +458,4 @@
     document.body.insertAdjacentHTML('beforeend', `
     <div id="wa-modal" class="fixed inset-0 z-50 no-print" style="display:none">
       <div class="absolute inset-0 bg-slate-900/50" data-wa="close"></div>
-      <div class="absolute bottom-0 inset-x-0 md:inset-x-auto md:left-1/2 md:-translate-x-1/2 md:bottom-auto md:top-10 md:w-[560px] bg-white rounded-t-3xl md:rounded-3xl p-4 space-y-3 max-h-[92vh] overflow-y-auto" style="padding-bottom:calc(16px + env(safe-area-inset-bottom))">
-        <div class="flex items-center justify-between">
-          <h3 class="text-base font-bold text-slate-900"><i class="fa-brands fa-whatsapp text-emerald-600 ml-1"></i>تقرير واتساب</h3>
-          <button data-wa="close" class="w-9 h-9 rounded-xl bg-slate-100 text-slate-600"><i class="fa-solid fa-xmark"></i></button>
-        </div>
-        <div class="grid grid-cols-2 gap-2">
-          <select id="wa-gender" class="text-sm border border-slate-200 rounded-xl px-3 py-2 bg-slate-50"><option value="ALL">كل المدارس</option><option value="ذكور">البنين</option><option value="إناث">البنات</option></select>
-          <label class="flex items-center gap-2 text-xs font-bold text-slate-600 bg-slate-50 border border-slate-200 rounded-xl px-3"><input type="checkbox" id="wa-unsch"> مع غير المجدولة</label>
-        </div>
-        <textarea id="wa-text" rows="12" class="w-full text-sm border border-slate-200 rounded-2xl p-3 bg-slate-50 leading-relaxed" style="-webkit-user-select:text;user-select:text"></textarea>
-        <input id="wa-phone" inputmode="tel" dir="ltr" placeholder="رقم المستلم بصيغة دولية (اختياري) مثل 963912345678" class="w-full text-sm border border-slate-200 rounded-xl px-3 py-2 bg-slate-50">
-        <div id="wa-note" class="text-[11px] text-amber-600 hidden"></div>
-        <div class="grid grid-cols-3 gap-2">
-          <button data-wa="send" class="col-span-3 bg-emerald-600 text-white text-sm font-bold rounded-2xl py-3"><i class="fa-brands fa-whatsapp ml-1"></i>إرسال عبر واتساب</button>
-          <button data-wa="share" class="bg-slate-100 text-slate-700 text-xs font-bold rounded-xl py-2.5"><i class="fa-solid fa-share-nodes ml-1"></i>مشاركة</button>
-          <button data-wa="copy" class="bg-slate-100 text-slate-700 text-xs font-bold rounded-xl py-2.5"><i class="fa-regular fa-copy ml-1"></i>نسخ</button>
-          <button data-wa="refresh" class="bg-slate-100 text-slate-700 text-xs font-bold rounded-xl py-2.5"><i class="fa-solid fa-rotate ml-1"></i>إعادة توليد</button>
-        </div>
-        <p class="text-[11px] text-slate-400">النص قابل للتعديل قبل الإرسال. لا تُضاف أرقام هواتف الموجهين إلى التقرير.</p>
-      </div>
-    </div>`);
-    const m = document.getElementById('wa-modal');
-    const regen = () => { m.dataset.fresh = '1'; document.getElementById('wa-text').value = buildWaReport({ gender: document.getElementById('wa-gender').value, unscheduled: document.getElementById('wa-unsch').checked, schoolId: m.dataset.school || '' }); checkLen(); };
-    const checkLen = () => {
-      const n = document.getElementById('wa-note'), len = encodeURIComponent(document.getElementById('wa-text').value).length;
-      n.classList.toggle('hidden', len < 5500);
-      n.textContent = 'التقرير طويل؛ قد لا يستقبله رابط واتساب كاملاً. استخدم «مشاركة» أو «نسخ» ثم الصقه في المحادثة.';
-    };
-    document.getElementById('wa-gender').addEventListener('change', regen);
-    document.getElementById('wa-unsch').addEventListener('change', regen);
-    document.getElementById('wa-text').addEventListener('input', checkLen);
-    document.getElementById('wa-phone').addEventListener('change', e => { try { localStorage.setItem(WA_KEY, e.target.value.replace(/\D/g, '')); } catch (x) { } });
-    m.addEventListener('click', async e => {
-      const b = e.target.closest('[data-wa]'); if (!b) return;
-      const act = b.dataset.wa, txt = document.getElementById('wa-text').value;
-      if (act === 'close') m.style.display = 'none';
-      else if (act === 'refresh') regen();
-      else if (act === 'send') {
-        const num = document.getElementById('wa-phone').value.replace(/\D/g, '');
-        window.open('https://wa.me/' + num + '?text=' + encodeURIComponent(txt), '_blank');
-      } else if (act === 'share') {
-        if (navigator.share) { try { await navigator.share({ text: txt }); } catch (x) { } } else showToast('المشاركة غير مدعومة هنا، استخدم النسخ', 'info');
-      } else if (act === 'copy') {
-        try { await navigator.clipboard.writeText(txt); showToast('تم نسخ التقرير'); }
-        catch (x) { const t = document.getElementById('wa-text'); t.select(); document.execCommand('copy'); showToast('تم نسخ التقرير'); }
-      }
-    });
-    m._regen = regen;
-  }
-  window.openWaReport = function (schoolId) {
-    ensureWaModal();
-    const m = document.getElementById('wa-modal');
-    m.dataset.school = schoolId || '';
-    document.getElementById('wa-gender').value = 'ALL';
-    document.getElementById('wa-unsch').checked = !!schoolId;
-    try { document.getElementById('wa-phone').value = localStorage.getItem(WA_KEY) || ''; } catch (x) { }
-    m._regen(); m.style.display = 'block';
-  };
-
-  // ---------- تصدير فريق الزيارة وإرسال التكليف للموجهين ----------
-  const CC = String(CFG.COUNTRY_CODE || '963');
-  const waNum = p => {
-    let d = String(p || '').replace(/\D/g, ''); if (!d) return '';
-    if (d.startsWith('00')) d = d.slice(2);
-    else if (d.startsWith('0')) d = CC + d.slice(1);
-    else if (!d.startsWith(CC) && d.length <= 9) d = CC + d;
-    return d.length >= 10 ? d : '';
-  };
-  function teamCtx() {
-    const sc = curSchool(); if (!sc) return null;
-    const date = document.getElementById('t-date').value, day = document.getElementById('t-day').value || dayOf(date);
-    const label = date ? fmtDate(date) : (day ? 'يوم ' + day : 'يُحدَّد لاحقاً');
-    return { sc, date, day: DAYS.slice(0, 5).includes(day) ? day : '', label, members: supervisors.filter(s => TEAM.has(s.id)) };
-  }
-  function supLessons(sup, sc, day) {
-    const mt = subjMatch(sup.specialty);
-    return (schedules[sc.id] || []).filter(r => mt(r.subject) && (!day || r.day === day))
-      .sort((a, b) => DAYS.indexOf(a.day) - DAYS.indexOf(b.day) || a.period - b.period);
-  }
-  const lessonLine = r => `• ح${r.period || '؟'} — ${r.grade} — ${r.subject}${r.teacher ? ' (' + r.teacher + ')' : ''}`;
-  function supMessage(sup, cx, o) {
-    const L = supLessons(sup, cx.sc, cx.day), st = supStats(sup, cx.sc);
-    const out = ['السلام عليكم ورحمة الله وبركاته', `الأستاذ/ة ${sup.name} المحترم/ة،`, '', '*📋 تكليف بزيارة إشرافية*',
-      `🏫 المدرسة: ${cx.sc.name}`, `📅 الموعد: ${cx.label}`];
-    if (o.time) out.push('⏰ الوقت: ' + o.time);
-    if (o.lessons) {
-      if (L.length) {
-        out.push('', `📚 حصص اختصاصك (${specLabel(sup)}) ${cx.day ? 'يوم ' + cx.day : 'خلال الأسبوع'}:`);
-        L.slice(0, 8).forEach(r => out.push((cx.day ? '' : r.day + ' ') + lessonLine(r)));
-        if (L.length > 8) out.push(`… و${L.length - 8} حصص أخرى`);
-      } else out.push('', '⚠️ لا توجد حصص لاختصاصك في هذا الموعد، يرجى التواصل مع الإدارة.');
-    }
-    const mates = cx.members.filter(m => m.id !== sup.id);
-    if (mates.length) out.push('', '👥 زملاؤك في الفريق: ' + mates.map(m => m.name + (m.specialty ? ' (' + specLabel(m) + ')' : '')).join('، '));
-    if (o.notes) out.push('', '📝 ' + o.notes);
-    out.push('', 'يرجى تأكيد الاستلام. بارك الله بجهودكم 🌹');
-    return out.join('\n');
-  }
-  function groupMessage(cx, o) {
-    const out = ['*📋 تكليف فريق زيارة إشرافية*', `🏫 المدرسة: ${cx.sc.name}`, `📅 الموعد: ${cx.label}`];
-    if (o.time) out.push('⏰ الوقت: ' + o.time);
-    out.push('', `👥 الفريق (${cx.members.length}):`);
-    cx.members.forEach((m, i) => {
-      const L = supLessons(m, cx.sc, cx.day);
-      out.push(`${NUM[i] || (i + 1) + '.'} *${m.name}* — ${specLabel(m)}` + (o.lessons ? (L.length ? ` — ${L.length} حصة${cx.day ? '' : ' أسبوعياً'}` : ' — ⚠️ لا حصص') : ''));
-    });
-    if (o.notes) out.push('', '📝 ' + o.notes);
-    out.push('', '_أُعدّ عبر منظومة الإشراف_');
-    return out.join('\n');
-  }
-  function xlsxDownload(sheets, file) {
-    if (typeof XLSX === 'undefined') return showToast('مكتبة Excel لم تُحمَّل بعد، أعد المحاولة', 'error');
-    const wb = XLSX.utils.book_new();
-    sheets.forEach(([name, rows, w]) => {
-      const ws = XLSX.utils.json_to_sheet(rows.length ? rows : [{ 'ملاحظة': 'لا بيانات' }]);
-      ws['!cols'] = (w || []).map(x => ({ wch: x })); ws['!views'] = [{ RTL: true }];
-      XLSX.utils.book_append_sheet(wb, ws, name.slice(0, 31));
-    });
-    wb.Workbook = { Views: [{ RTL: true }] };
-    XLSX.writeFile(wb, file);
-  }
-  function entryRows(sc, members, day, label) {
-    const team = [], les = [];
-    members.forEach(m => {
-      const st = supStats(m, sc), L = supLessons(m, sc, day);
-      team.push({ 'المدرسة': sc.name, 'موعد الزيارة': label, 'الموجه': m.name, 'الاختصاص': specLabel(m), 'الهاتف': m.phone === '-' ? '' : m.phone,
-        'حصصه أسبوعياً': st.weekly, 'حصصه يوم الزيارة': day ? L.length : '', 'الحالة': st.warn || 'متاح' });
-      L.forEach(r => les.push({ 'المدرسة': sc.name, 'الموجه': m.name, 'اليوم': r.day, 'الحصة': r.period, 'الصف': r.grade, 'المادة': r.subject, 'المدرس': r.teacher }));
-    });
-    return { team, les };
-  }
-  window.exportTeamXlsx = function (all) {
-    if (!all) {
-      const cx = teamCtx(); if (!cx || !cx.members.length) return showToast('اختر أعضاء الفريق أولاً', 'error');
-      const { team, les } = entryRows(cx.sc, cx.members, cx.day, cx.label);
-      return xlsxDownload([['الفريق', team, [32, 18, 26, 22, 14, 12, 14, 36]], ['حصص الزيارة', les, [32, 26, 10, 8, 24, 20, 24]]], 'فريق_زيارة_' + cx.sc.name.replace(/\s+/g, '_') + '.xlsx');
-    }
-    const T = [], Ls = [];
-    distributionResults.filter(d => d.supervisors && d.supervisors.length).forEach(d => {
-      const sc = schools.find(s => s.id === d.schoolId); if (!sc) return;
-      const v = d.visitDate || '', day = DAYS.includes(v) ? v : dayOf(v), label = v ? (DAYS.includes(v) ? 'يوم ' + v : fmtDate(v)) : 'غير محدد';
-      const mem = d.supervisors.map(x => supervisors.find(s => s.id === x.id)).filter(Boolean);
-      const r = entryRows(sc, mem, DAYS.slice(0, 5).includes(day) ? day : '', label); T.push(...r.team); Ls.push(...r.les);
-    });
-    if (!T.length) return showToast('لا توجد فرق محفوظة للتصدير', 'error');
-    const bySup = {}; T.forEach(r => { (bySup[r['الموجه']] = bySup[r['الموجه']] || []).push(r['المدرسة'] + ' (' + r['موعد الزيارة'] + ')'); });
-    const sum = Object.entries(bySup).map(([k, v]) => ({ 'الموجه': k, 'عدد الزيارات': v.length, 'المدارس': v.join(' | ') }));
-    xlsxDownload([['كل الفرق', T, [32, 18, 26, 22, 14, 12, 14, 36]], ['حصص الزيارات', Ls, [32, 26, 10, 8, 24, 20, 24]], ['ملخص حسب الموجه', sum, [26, 12, 80]]], 'خطة_الزيارات_كل_الفرق.xlsx');
-  };
-  window.exportTeamIcs = function () {
-    const cx = teamCtx(); if (!cx) return;
-    if (!cx.date) return showToast('حدد «تاريخ الزيارة» لإنشاء ملف التقويم', 'error');
-    const d = cx.date.replace(/-/g, ''), nx = new Date(cx.date + 'T00:00:00'); nx.setDate(nx.getDate() + 1);
-    const d2 = nx.getFullYear() + String(nx.getMonth() + 1).padStart(2, '0') + String(nx.getDate()).padStart(2, '0');
-    const t = v => String(v).replace(/[\\;,]/g, m => '\\' + m).replace(/\n/g, '\\n');
-    const ics = ['BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Supervision//AR', 'BEGIN:VEVENT', 'UID:' + cx.sc.id + '-' + d + '@supervision',
-      'DTSTAMP:' + new Date().toISOString().replace(/[-:]/g, '').slice(0, 15) + 'Z', 'DTSTART;VALUE=DATE:' + d, 'DTEND;VALUE=DATE:' + d2,
-      'SUMMARY:' + t('زيارة إشرافية - ' + cx.sc.name), 'DESCRIPTION:' + t('الفريق: ' + cx.members.map(m => m.name).join('، ')), 'END:VEVENT', 'END:VCALENDAR'].join('\r\n');
-    const a = document.createElement('a'); a.href = URL.createObjectURL(new Blob([ics], { type: 'text/calendar;charset=utf-8' }));
-    a.download = 'زيارة_' + cx.sc.name.replace(/\s+/g, '_') + '.ics'; document.body.appendChild(a); a.click(); a.remove();
-  };
-  function ensureTxModal() {
-    if (document.getElementById('tx-modal')) return;
-    document.body.insertAdjacentHTML('beforeend', `
-    <div id="tx-modal" class="fixed inset-0 z-50 no-print" style="display:none">
-      <div class="absolute inset-0 bg-slate-900/50" data-tx="close"></div>
-      <div class="absolute bottom-0 inset-x-0 md:inset-x-auto md:left-1/2 md:-translate-x-1/2 md:bottom-auto md:top-6 md:w-[620px] bg-white rounded-t-3xl md:rounded-3xl p-4 space-y-3 max-h-[92vh] overflow-y-auto" style="padding-bottom:calc(16px + env(safe-area-inset-bottom))">
-        <div class="flex items-center justify-between">
-          <h3 class="text-base font-bold text-slate-900"><i class="fa-brands fa-whatsapp text-emerald-600 ml-1"></i>إرسال التكليف وتصدير الفريق</h3>
-          <button data-tx="close" class="w-9 h-9 rounded-xl bg-slate-100 text-slate-600"><i class="fa-solid fa-xmark"></i></button>
-        </div>
-        <div id="tx-head" class="text-xs font-bold text-slate-700 bg-slate-50 rounded-xl px-3 py-2"></div>
-        <div class="grid grid-cols-2 gap-2">
-          <input id="tx-time" placeholder="وقت الوصول (اختياري) مثل 8:00 صباحاً" class="text-sm border border-slate-200 rounded-xl px-3 py-2 bg-slate-50">
-          <label class="flex items-center gap-2 text-xs font-bold text-slate-600 bg-slate-50 border border-slate-200 rounded-xl px-3"><input type="checkbox" id="tx-les" checked> إدراج حصص كل موجه</label>
-        </div>
-        <textarea id="tx-notes" rows="2" placeholder="ملاحظات للموجهين (محور الزيارة، مكان التجمع، ما يُحضَر…)" class="w-full text-sm border border-slate-200 rounded-xl p-3 bg-slate-50"></textarea>
-        <div class="text-xs font-bold text-slate-600">إرسال فردي (رسالة مخصصة لكل موجه):</div>
-        <div id="tx-list" class="space-y-2"></div>
-        <div class="text-xs font-bold text-slate-600 pt-1">رسالة جماعية للمجموعة (قابلة للتعديل):</div>
-        <textarea id="tx-group" rows="8" class="w-full text-sm border border-slate-200 rounded-2xl p-3 bg-slate-50 leading-relaxed" style="-webkit-user-select:text;user-select:text"></textarea>
-        <div class="grid grid-cols-3 gap-2">
-          <button data-tx="gshare" class="bg-emerald-600 text-white text-xs font-bold rounded-xl py-2.5"><i class="fa-solid fa-share-nodes ml-1"></i>مشاركة للمجموعة</button>
-          <button data-tx="gcopy" class="bg-slate-100 text-slate-700 text-xs font-bold rounded-xl py-2.5"><i class="fa-regular fa-copy ml-1"></i>نسخ</button>
-          <button data-tx="ics" class="bg-slate-100 text-slate-700 text-xs font-bold rounded-xl py-2.5"><i class="fa-regular fa-calendar-plus ml-1"></i>ملف تقويم</button>
-          <button data-tx="xl" class="bg-slate-100 text-slate-700 text-xs font-bold rounded-xl py-2.5"><i class="fa-solid fa-file-excel ml-1"></i>Excel لهذا الفريق</button>
-          <button data-tx="xlall" class="col-span-2 bg-slate-100 text-slate-700 text-xs font-bold rounded-xl py-2.5"><i class="fa-solid fa-file-excel ml-1"></i>Excel لكل الفرق المحفوظة (+ملخص لكل موجه)</button>
-        </div>
-        <p class="text-[11px] text-slate-400">يُنشأ رقم واتساب من رقم الهاتف تلقائياً (رمز الدولة ${CC} قابل للتغيير في config.js). الموجه بلا رقم صحيح يظهر معطلاً.</p>
-      </div>
-    </div>`);
-    const m = document.getElementById('tx-modal'), sent = new Set();
-    const opts = () => ({ time: document.getElementById('tx-time').value.trim(), notes: document.getElementById('tx-notes').value.trim(), lessons: document.getElementById('tx-les').checked });
-    const render = () => {
-      const cx = teamCtx(); if (!cx) return; const o = opts();
-      document.getElementById('tx-head').textContent = `${cx.sc.name} — ${cx.label} — ${cx.members.length} أعضاء`;
-      document.getElementById('tx-list').innerHTML = cx.members.map(s => {
-        const num = waNum(s.phone), L = supLessons(s, cx.sc, cx.day).length, done = sent.has(s.id);
-        return `<div class="flex items-center gap-2 border border-slate-200 rounded-xl px-3 py-2"><div class="flex-1 min-w-0"><div class="text-sm font-bold truncate">${esc(s.name)} ${done ? '<span class="text-emerald-600">✓</span>' : ''}</div><div class="text-[11px] text-slate-500">${esc(specLabel(s))} · ${cx.day ? L + ' حصة يوم الزيارة' : 'بلا يوم محدد'}${num ? '' : ' · <span class="text-rose-600">لا رقم صالح</span>'}</div></div>
-          <button data-tx="send" data-id="${s.id}" ${num ? '' : 'disabled'} class="${num ? 'bg-emerald-600 text-white' : 'bg-slate-200 text-slate-400'} text-xs font-bold rounded-lg px-3 py-2"><i class="fa-brands fa-whatsapp ml-1"></i>إرسال</button>
-          <button data-tx="copy1" data-id="${s.id}" class="bg-slate-100 text-slate-700 text-xs rounded-lg px-2.5 py-2"><i class="fa-regular fa-copy"></i></button></div>`;
-      }).join('') || '<div class="text-xs text-slate-400 p-2">لم يُختر أحد في الفريق.</div>';
-      document.getElementById('tx-group').value = groupMessage(cx, o);
-    };
-    ['tx-time', 'tx-notes', 'tx-les'].forEach(id => document.getElementById(id).addEventListener('input', render));
-    m._render = render;
-    const copy = async t => { try { await navigator.clipboard.writeText(t); } catch (x) { const a = document.createElement('textarea'); a.value = t; document.body.appendChild(a); a.select(); document.execCommand('copy'); a.remove(); } showToast('تم النسخ'); };
-    m.addEventListener('click', async e => {
-      const b = e.target.closest('[data-tx]'); if (!b) return; const act = b.dataset.tx, cx = teamCtx(), o = opts();
-      const sup = cx && cx.members.find(s => s.id === b.dataset.id);
-      if (act === 'close') m.style.display = 'none';
-      else if (act === 'send' && sup) { window.open('https://wa.me/' + waNum(sup.phone) + '?text=' + encodeURIComponent(supMessage(sup, cx, o)), '_blank'); sent.add(sup.id); render(); }
-      else if (act === 'copy1' && sup) copy(supMessage(sup, cx, o));
-      else if (act === 'gcopy') copy(document.getElementById('tx-group').value);
-      else if (act === 'gshare') { const t = document.getElementById('tx-group').value; if (navigator.share) { try { await navigator.share({ text: t }); } catch (x) { } } else window.open('https://wa.me/?text=' + encodeURIComponent(t), '_blank'); }
-      else if (act === 'ics') exportTeamIcs();
-      else if (act === 'xl') exportTeamXlsx(false);
-      else if (act === 'xlall') exportTeamXlsx(true);
-    });
-  }
-  window.openTeamShare = function () {
-    const cx = teamCtx(); if (!cx) return;
-    if (!cx.members.length) return showToast('اختر أعضاء الفريق أولاً', 'error');
-    ensureTxModal(); const m = document.getElementById('tx-modal'); m._render(); m.style.display = 'block';
-  };
-
-  // ---------- شريط التنقل السفلي للجوال ----------
-  function injectBottomNav() {
-    const items = [['distribution', 'fa-calendar-days', 'الزيارات'], ['team', 'fa-people-group', 'الفريق'], ['filter', 'fa-filter', 'الفلترة'], ['schedules', 'fa-table-cells', 'الحصص']];
-    document.body.insertAdjacentHTML('beforeend', `
-    <nav id="bottom-nav" class="md:hidden fixed bottom-0 inset-x-0 z-40 grid grid-cols-5 no-print">
-      ${[['distribution', 'fa-calendar-days', 'الزيارات'], ['filter', 'fa-filter', 'الفلترة']].map(([v, ic, l]) => `<button data-nav="${v}" class="flex flex-col items-center justify-center gap-0.5"><i class="fa-solid ${ic} text-lg"></i><span class="text-[11px] font-bold">${l}</span></button>`).join('')}
-      <button data-nav="team" aria-label="تكوين فريق"><i class="fa-solid fa-plus text-2xl"></i></button>
-      ${[['schedules', 'fa-table-cells', 'الحصص'], ['more', 'fa-ellipsis', 'المزيد']].map(([v, ic, l]) => `<button data-nav="${v}" class="flex flex-col items-center justify-center gap-0.5"><i class="fa-solid ${ic} text-lg"></i><span class="text-[11px] font-bold">${l}</span></button>`).join('')}
-    </nav>
-    <div id="more-sheet" class="md:hidden fixed inset-0 z-50 hidden">
-      <div class="absolute inset-0 bg-slate-900/50" data-nav="close"></div>
-      <div class="absolute bottom-0 inset-x-0 bg-white rounded-t-3xl p-4 space-y-2" style="padding-bottom:calc(16px + env(safe-area-inset-bottom))">
-        <div class="w-10 h-1.5 bg-slate-300 rounded-full mx-auto mb-2"></div>
-        ${[['supervisors', 'fa-user-tie', 'كادر الموجهين'], ['schools', 'fa-mosque', 'سجل المدارس'], ['import', 'fa-cloud-arrow-down', 'تصدير ونسخ احتياطي']].map(([v, ic, l]) =>
-          `<button data-nav="${v}" class="w-full flex items-center gap-3 bg-slate-50 rounded-2xl px-4 py-3.5 text-sm font-bold text-slate-700"><i class="fa-solid ${ic} text-emerald-600 w-5 text-center"></i>${l}</button>`).join('')}
-        <button data-nav="wa" class="w-full flex items-center gap-3 bg-slate-50 rounded-2xl px-4 py-3.5 text-sm font-bold text-slate-700"><i class="fa-brands fa-whatsapp text-emerald-600 w-5 text-center"></i>تقرير واتساب</button>
-        <button data-nav="hero" class="w-full flex items-center gap-3 bg-slate-50 rounded-2xl px-4 py-3.5 text-sm font-bold text-slate-700"><i class="fa-solid fa-gear text-emerald-600 w-5 text-center"></i>إعدادات الجولة والجدولة التلقائية</button>
-      </div>
-    </div>`);
-    const sheet = document.getElementById('more-sheet');
-    // ملاحظة أداء: Tailwind CDN يعيد بناء الأنماط عند كل تغيير في class،
-    // لذلك على الجوال نغيّر style/attribute فقط (لا يراقبها) بدل classList.
-    const hide = el => el && el.style.setProperty('display', 'none', 'important');
-    const show = (el, d) => el && (d ? el.style.setProperty('display', d, 'important') : el.style.removeProperty('display'));
-    const mob = () => window.matchMedia('(max-width: 767px)').matches;
-    const VIEWS = ['distribution', 'supervisors', 'schools', 'schedules', 'team', 'filter', 'import'];
-    const sheetOpen = on => on ? show(sheet, 'block') : hide(sheet);
-    hide(sheet);
-    document.body.addEventListener('click', e => {
-      const b = e.target.closest('[data-nav]'); if (!b) return;
-      const v = b.dataset.nav;
-      if (v === 'more') sheetOpen(true);
-      else if (v === 'close') sheetOpen(false);
-      else if (v === 'wa') { sheetOpen(false); openWaReport(); }
-      else if (v === 'hero') { document.getElementById('app-hero').classList.toggle('mobile-show'); sheetOpen(false); window.scrollTo({ top: 0, behavior: 'smooth' }); }
-      else { sheetOpen(false); v === 'team' ? openTeamBuilder() : switchView(v); }
-    });
-    const _sv = window.switchView;
-    window.switchView = function (v) {
-      if (mob()) {
-        VIEWS.forEach(x => { const el = document.getElementById('view-' + x); if (el) x === v ? show(el, 'block') : hide(el); });
-      } else { _sv(v); }
-      window.scrollTo(0, 0);
-      const home = document.getElementById('m-home'), stats = document.getElementById('app-stats');
-      v === 'distribution' ? show(home) : hide(home);
-      if (mob()) { v === 'distribution' ? show(stats) : hide(stats); }
-      document.querySelectorAll('#bottom-nav [data-nav]').forEach(b => {
-        const on = b.dataset.nav === v || (b.dataset.nav === 'more' && ['supervisors', 'schools', 'import'].includes(v));
-        on ? b.setAttribute('data-active', '1') : b.removeAttribute('data-active');
-      });
-    };
-    switchView('distribution');
-  }
-
-  // ---------- الصفحة الرئيسية للجوال ----------
-  function buildMobileHome() {
-    document.querySelector('main').insertAdjacentHTML('afterbegin', `
-    <div id="m-home" class="md:hidden space-y-4 no-print">
-      <input id="m-search" placeholder="🔍 ابحث عن مدرسة أو مدرّس أو مادة..." class="w-full px-4 py-3 text-sm shadow-sm">
-      <div id="m-hero"></div>
-      <div id="m-dots" class="m-dots flex justify-center gap-1.5"></div>
-      <div class="flex items-center justify-between pt-1"><h2 class="m-title">الإنجازات والمؤشرات</h2><button class="m-pill" onclick="switchView('filter')">فلترة الدوام</button></div>
-    </div>`);
-    let t; document.getElementById('m-search').addEventListener('input', e => {
-      clearTimeout(t); t = setTimeout(() => {
-        const v = e.target.value.trim(); if (!v) return;
-        switchView('filter'); document.getElementById('f-text').value = v; applyFilters();
-      }, 400);
-    });
-    const hero = document.getElementById('m-hero');
-    let raf = 0;
-    hero.addEventListener('scroll', () => {
-      if (raf) return;
-      raf = requestAnimationFrame(() => {
-        raf = 0;
-        const i = Math.round(Math.abs(hero.scrollLeft) / hero.clientWidth);
-        document.querySelectorAll('#m-dots span').forEach((d, k) => k === i ? d.setAttribute('data-on', '1') : d.removeAttribute('data-on'));
-      });
-    }, { passive: true });
-    refreshHome();
-  }
-  function refreshHome() {
-    const hero = document.getElementById('m-hero'); if (!hero) return;
-    const sched = distributionResults.filter(d => d.supervisors && d.supervisors.length).length;
-    const warn = distributionResults.filter(d => (d.supervisors || []).some(s => s.warn)).length;
-    const periods = Object.values(schedules).reduce((a, l) => a + l.length, 0);
-    const slide = (eyebrow, title, sub, btn, fn) => `<div class="m-slide"><div><small>${eyebrow}</small><h3>${title}</h3><p>${sub}</p></div><div><button class="m-gold-btn" onclick="${fn}">${btn}</button></div></div>`;
-    hero.innerHTML =
-      slide('خطة الزيارات', `المجدولة: ${sched} من ${schools.length} مدرسة`, warn ? `فرق عليها تنبيهات: ${warn}` : 'لا تنبيهات على الفرق', 'عرض جدول الزيارات', "switchView('distribution')") +
-      slide('فريق الزيارة', 'حدّد فريقك بنفسك', 'حسب حصص المدرسة واليوم المتاحين', 'تكوين فريق', 'openTeamBuilder()') +
-      slide('برنامج الدوام', `${periods.toLocaleString('ar')} حصة`, `${schools.length} مدرسة · ${supervisors.length} موجه`, 'فلترة الدوام', "switchView('filter')");
-    document.getElementById('m-dots').innerHTML = '<span data-on="1"></span><span></span><span></span>';
-  }
-  const _ra = window.renderAllViews;
-  window.renderAllViews = function () { _ra(); refreshHome(); };
-
-  // ---------- بطاقات بدل الجداول على الجوال (بدون تمرير أفقي) ----------
-  function mobileCards(tbodyId) {
-    const tb = document.getElementById(tbodyId); if (!tb) return;
-    const table = tb.closest('table'), wrap = table.parentElement.classList.contains('overflow-x-auto') ? table.parentElement.parentElement : table.parentElement;
-    let box = document.getElementById(tbodyId + '-m');
-    if (!box) { wrap.insertAdjacentHTML('beforebegin', `<div id="${tbodyId}-m" class="md:hidden space-y-2"></div>`); box = document.getElementById(tbodyId + '-m'); wrap.classList.add('hidden', 'md:block'); }
-    const heads = [...table.querySelectorAll('thead th')].map(t => t.textContent.trim());
-    box.innerHTML = [...tb.rows].map(tr => {
-      const cells = [...tr.cells];
-      if (cells.length === 1) return `<div class="bg-white rounded-2xl border border-slate-200 p-6 text-center text-xs text-slate-400">${cells[0].innerHTML}</div>`;
-      let title = '', acts = '', rows = '';
-      cells.forEach((td, i) => {
-        if (heads[i] === '#') return;
-        if (td.querySelector('button')) { acts += td.innerHTML; return; }
-        if (!title) { title = td.innerHTML; return; }
-        if (!td.textContent.trim()) return;
-        rows += `<div class="flex items-start justify-between gap-3 text-xs py-1.5 border-t border-slate-100"><span class="text-slate-500 shrink-0">${esc(heads[i])}</span><span class="text-slate-800 font-semibold text-left">${td.innerHTML}</span></div>`;
-      });
-      return `<div class="bg-white rounded-2xl border border-slate-200 p-3.5 shadow-xs"><div class="text-sm font-bold text-slate-900 mb-1">${title}</div>${rows}${acts ? `<div class="flex flex-wrap gap-2 justify-end mt-2 pt-2 border-t border-slate-100 text-base">${acts}</div>` : ''}</div>`;
-    }).join('');
-  }
-  [['renderSupervisorsTable', 'supervisors-table-body'], ['renderSchoolsTable', 'schools-table-body']].forEach(([fn, id]) => {
-    const o = window[fn]; window[fn] = function () { o.apply(this, arguments); mobileCards(id); };
-  });
-
-  let SM_DAY = 'الأحد';
-  function renderScheduleMobile() {
-    const box = document.getElementById('schedule-mobile'); if (!box) return;
-    const id = document.getElementById('schedule-school-selector').value, list = schedules[id] || [];
-    if (!document.getElementById('sm-body')) {
-      box.innerHTML = `<div class="flex gap-1.5 overflow-x-auto pb-1" id="sm-days"></div><select id="sm-grade" class="w-full text-sm px-3 py-2"></select><div id="sm-body" class="space-y-3"></div>`;
-      document.getElementById('sm-days').addEventListener('click', e => { const b = e.target.closest('[data-day]'); if (b) { SM_DAY = b.dataset.day; renderScheduleMobile(); } });
-      document.getElementById('sm-grade').addEventListener('change', renderScheduleMobile);
-    }
-    document.getElementById('sm-days').innerHTML = DAYS.slice(0, 5).map(d => `<button data-day="${d}" class="shrink-0 px-4 py-2 rounded-xl text-xs font-bold ${d === SM_DAY ? 'bg-emerald-600 text-white' : 'bg-white border border-slate-200 text-slate-600'}">${d}</button>`).join('');
-    const sel = document.getElementById('sm-grade'), keep = sel.value, grades = [...new Set(list.map(x => x.grade))];
-    sel.innerHTML = '<option value="">كل الصفوف</option>' + grades.map(g => `<option>${esc(g)}</option>`).join('');
-    if (grades.includes(keep)) sel.value = keep;
-    const gs = sel.value ? [sel.value] : grades;
-    document.getElementById('sm-body').innerHTML = gs.map(g => {
-      const rows = [1, 2, 3, 4, 5, 6, 7].map(p => {
-        const it = list.find(x => x.grade === g && normalizeDayName(x.day) === normalizeDayName(SM_DAY) && parseInt(x.period) === p);
-        return `<div class="flex items-center gap-3 py-2 ${p > 1 ? 'border-t border-slate-100' : ''}"><span class="w-8 h-8 shrink-0 rounded-xl bg-emerald-600 text-white text-xs font-bold flex items-center justify-center">${p}</span>${it ? `<div class="min-w-0"><div class="text-sm font-bold text-slate-900">${esc(it.subject)}</div>${it.teacher ? `<div class="text-[11px] text-slate-500">${esc(it.teacher)}</div>` : ''}</div>` : '<span class="text-xs text-slate-300">—</span>'}</div>`;
-      }).join('');
-      return `<div class="bg-white rounded-2xl border border-slate-200 p-3.5 shadow-xs"><div class="text-sm font-bold text-emerald-800 mb-1"><i class="fa-solid fa-graduation-cap ml-1"></i>${esc(g)}</div>${rows}</div>`;
-    }).join('') || '<div class="p-8 text-center text-slate-400 text-xs">لا يوجد جدول لهذه المدرسة</div>';
-  }
-  const IS_MOBILE = () => window.matchMedia('(max-width: 767px)').matches;
-  const _rs = window.renderSchoolScheduleView;
-  // على الجوال لا نبني جدول سطح المكتب المخفي (يُبطئ الصفحة)
-  window.renderSchoolScheduleView = function () { if (!IS_MOBILE()) _rs(); renderScheduleMobile(); };
-  // تقرير الطباعة لا يُبنى على الجوال إلا عند الطباعة فعلاً
-  const _pp = window.prepareOfficialPrintReport;
-  if (typeof _pp === 'function') {
-    window.prepareOfficialPrintReport = function () { if (!IS_MOBILE()) _pp(); };
-    window.addEventListener('beforeprint', () => { try { _pp(); } catch (e) { console.error(e); } });
-  }
-  function injectMobileTables() {
-    const c = document.getElementById('schedule-display-container');
-    c.classList.add('hidden', 'md:block');
-    c.insertAdjacentHTML('afterend', '<div id="schedule-mobile" class="md:hidden space-y-3"></div>');
-    renderScheduleMobile(); mobileCards('supervisors-table-body'); mobileCards('schools-table-body');
-  }
-
-  // ---------- الإقلاع ----------
-  window.addEventListener('DOMContentLoaded', async () => {
-    injectTab(); injectTeamTab(); injectBottomNav(); buildMobileHome(); injectMobileTables();
-    if (!CFG.SCHEDULE_CSV || !CFG.SUPERVISORS_CSV) return;
-    window.matchMedia('(max-width: 767px)').addEventListener('change', () => { try { renderFilter(); } catch (e) { } });
-    // 1) عرض آخر بيانات محفوظة فوراً  2) جلب الجديد في الخلفية وتحديث الشاشة إن تغيّر
-    const cached = readCache(); let shownCache = false;
-    if (cached) {
-      try { buildData(cached); renderAllViews(); shownCache = true; } catch (e) { console.error(e); }
-    }
-    try {
-      const fresh = await fetchBoth();
-      if (!shownCache || fresh.sup !== cached.sup || fresh.sch !== cached.sch) {
-        buildData(fresh); renderAllViews(); saveCache(fresh);
-        showToast(shownCache ? 'تم تحديث البيانات' : 'تم تحميل البيانات من Google Sheets');
-      }
-    } catch (e) {
-      console.error(e);
-      showToast(shownCache ? 'تعذّر التحديث، تُعرض آخر بيانات محفوظة' : 'تعذر تحميل البيانات: ' + e.message, 'error');
-    }
-  });
-})();
+      <div class="absolute bottom-0 inset-x-0 md:inset-x-auto md:left-1/2 md:-translate-x-1/2 md:bottom-auto md:top-10 md:w-[560px] bg-white rounded-t-3xl md:rounded
