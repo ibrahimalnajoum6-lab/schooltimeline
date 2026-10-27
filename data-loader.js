@@ -112,23 +112,11 @@
     if (!supRows[0] || !('اسم الموجه' in supRows[0])) throw new Error('ورقة الموجهين: لا يوجد عمود «اسم الموجه» (الأعمدة الموجودة: ' + Object.keys(supRows[0] || {}).join('، ') + ')');
     const names = [...new Set(schRows.map(r => String(r['المدرسة'] || '').trim()).filter(Boolean))].sort(COLL.compare);
     const idOf = {}; schools = []; schedules = []; schedules = {}; FLAT = [];
-    // المنطقة والمسافة (كم) من أعمدة اختيارية في ورقة الجدول: «المنطقة» (أو «البلدة») و«المسافة» (أو «المسافة (كم)»)
-    // أو من SCHOOL_INFO في config.js. يكفي ذكرها في أي صف من صفوف المدرسة.
-    const keyOf = (row, re) => Object.keys(row).find(k => re.test(String(k).trim()));
-    const info = {};
-    schRows.forEach(r => {
-      const nm = String(r['المدرسة'] || '').trim(); if (!nm) return;
-      const kz = keyOf(r, /^(المنطقة|البلدة|المنطقة الجغرافية)$/), kk = keyOf(r, /^المسافة/);
-      const o = info[nm] || (info[nm] = {});
-      if (kz && !o.zone && String(r[kz]).trim()) o.zone = String(r[kz]).trim();
-      if (kk && (o.km === undefined || o.km === '') && String(r[kk]).trim()) o.km = String(r[kk]).trim();
-    });
-    Object.entries(CFG.SCHOOL_INFO || {}).forEach(([nm, v]) => { info[nm] = Object.assign(info[nm] || {}, v); });
     names.forEach((nm, i) => {
       const ov = (CFG.SCHOOL_GENDER_OVERRIDES || {})[nm];
       idOf[nm] = 'sch-' + i;
       schools.push({ id: 'sch-' + i, name: nm, gender: ov || (/بنات|اناث|إناث/.test(nm) ? 'إناث' : 'ذكور'),
-        stage: 'مشترك (7 - بكالوريا)', sections: 0, zone: (info[nm] || {}).zone || '', km: (info[nm] || {}).km ?? '', targetSpecialty: 'الفقه وأصوله' });
+        stage: 'مشترك (7 - بكالوريا)', sections: 0, zone: 'قطاع المركز', targetSpecialty: 'الفقه وأصوله' });
       schedules['sch-' + i] = [];
     });
     schRows.forEach(r => {
@@ -165,7 +153,7 @@
           </div>
         </div>
         <div class="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-3">
-          ${field('المدرسة', `<select id="f-school" class="${inp}"></select>`)}
+          ${field('المدرسة', `<input id="f-school" list="dl-school" placeholder="ابحث باسم المدرسة..." autocomplete="off" class="${inp}"><datalist id="dl-school"></datalist>`)}
           ${field('اليوم', `<select id="f-day" class="${inp}"></select>`)}
           ${field('الحصة', `<select id="f-period" class="${inp}"></select>`)}
           ${field('الصف', `<select id="f-stage" class="${inp}"></select>`)}
@@ -195,14 +183,13 @@
       document.querySelectorAll('#view-filter .f-extra').forEach(x => x.classList.toggle('hidden'));
       e.target.textContent = document.querySelector('#view-filter .f-extra').classList.contains('hidden') ? 'فلاتر إضافية (المدرس، بحث نصي...) ▾' : 'إخفاء الفلاتر الإضافية ▴';
     });
-    ['f-school', 'f-day', 'f-period', 'f-stage', 'f-section', 'f-noteacher'].forEach(id => document.getElementById(id).addEventListener('change', applyFilters));
-    document.getElementById('f-school').addEventListener('change', refreshLists);
-    let t; ['f-subject', 'f-teacher', 'f-text'].forEach(id => document.getElementById(id).addEventListener('input', () => { clearTimeout(t); t = setTimeout(applyFilters, 200); }));
+    ['f-day', 'f-period', 'f-stage', 'f-section', 'f-noteacher'].forEach(id => document.getElementById(id).addEventListener('change', applyFilters));
+    let t; ['f-school', 'f-subject', 'f-teacher', 'f-text'].forEach(id => document.getElementById(id).addEventListener('input', () => { clearTimeout(t); t = setTimeout(() => { if (id === 'f-school') refreshLists(); applyFilters(); }, 200); }));
   }
   const opts = (first, arr) => `<option value="">${first}</option>` + arr.map(v => `<option>${esc(v)}</option>`).join('');
   function buildFilterOptions() {
     const uniq = k => [...new Set(FLAT.map(r => r[k]).filter(Boolean))].sort((a, b) => COLL.compare(String(a), String(b)));
-    document.getElementById('f-school').innerHTML = opts('كل المدارس', uniq('school'));
+    document.getElementById('dl-school').innerHTML = uniq('school').map(v => `<option value="${esc(v)}">`).join('');
     document.getElementById('f-day').innerHTML = opts('كل الأيام', DAYS);
     document.getElementById('f-period').innerHTML = opts('كل الحصص', [1, 2, 3, 4, 5, 6, 7]);
     document.getElementById('f-stage').innerHTML = opts('كل الصفوف', STAGES);
@@ -210,7 +197,7 @@
     refreshLists();
   }
   function refreshLists() {
-    const sc = document.getElementById('f-school').value, rows = sc ? FLAT.filter(r => r.school === sc) : FLAT;
+    const sc = n(document.getElementById('f-school').value), rows = sc ? FLAT.filter(r => n(r.school).includes(sc)) : FLAT;
     const uniq = k => [...new Set(rows.map(r => r[k]).filter(Boolean))].sort((a, b) => COLL.compare(String(a), String(b)));
     document.getElementById('dl-subject').innerHTML = uniq('subject').map(v => `<option value="${esc(v)}">`).join('');
     document.getElementById('dl-teacher').innerHTML = uniq('teacher').map(v => `<option value="${esc(v)}">`).join('');
@@ -218,9 +205,9 @@
   window.applyFilters = function () {
     LIMIT = IS_MOB() ? 40 : 300;
     const v = id => document.getElementById(id).value.trim();
-    const sc = v('f-school'), dy = v('f-day'), pr = v('f-period'), st = v('f-stage'), se = v('f-section'), tx = n(v('f-text')), sb = n(v('f-subject')), tc = n(v('f-teacher'));
+    const sc = n(v('f-school')), dy = v('f-day'), pr = v('f-period'), st = v('f-stage'), se = v('f-section'), tx = n(v('f-text')), sb = n(v('f-subject')), tc = n(v('f-teacher'));
     const no = document.getElementById('f-noteacher').checked;
-    FILTERED = FLAT.filter(r => (!sc || r.school === sc) && (!dy || r.day === dy) && (!pr || r.period == pr) && (!st || r.stage === st) && (!se || (/^\d$/.test(se) ? r.sec == se : r.track === se)) &&
+    FILTERED = FLAT.filter(r => (!sc || n(r.school).includes(sc)) && (!dy || r.day === dy) && (!pr || r.period == pr) && (!st || r.stage === st) && (!se || (/^\d$/.test(se) ? r.sec == se : r.track === se)) &&
       (!tx || r._k.includes(tx)) &&
       (!sb || r._s.includes(sb)) && (!tc || r._t.includes(tc)) && (!no || !r.teacher));
     renderFilter();
@@ -230,7 +217,7 @@
     document.getElementById('filter-body').innerHTML = mob ? '' : shown.map(r =>
       `<tr class="hover:bg-slate-50"><td class="p-3 font-semibold">${esc(r.school)}</td><td class="p-3">${esc(r.day)}</td><td class="p-3">${r.period || '—'}</td><td class="p-3">${esc(r.grade)}</td><td class="p-3">${esc(r.subject)}</td><td class="p-3">${esc(r.teacher) || '<span class="text-rose-400">—</span>'}</td></tr>`).join('')
       || '<tr><td colspan="6" class="p-6 text-center text-slate-400">لا توجد نتائج مطابقة</td></tr>';
-    const oneSchool = document.getElementById('f-school').value;
+    const oneSchool = document.getElementById('f-school').value.trim() && new Set(FILTERED.map(r => r.school)).size === 1;
     document.getElementById('filter-cards').innerHTML = !mob ? '' : shown.map(r => `
       <div class="bg-white rounded-2xl border border-slate-200 p-3 shadow-xs active:scale-[.99] transition">
         <div class="flex items-center justify-between gap-2 mb-1.5">
@@ -265,7 +252,7 @@
   const SPEC = [
     [/انكليز|انجليز/, /انكليز|انجليز|انكيز/], [/عربي/, /عربي|نحو|ادب|بلاغ|املاء|قواعد|نصوص|تعبير|قراءه|صرف|عروض|مطالعه/],
     [/رياضيات/, /رياضيات|جبر|هندس|تفاضل|احصاء|حساب/], [/احياء/, /احياء|حياتيه|بيولوج|علوم/],
-    [/فيزياء|كيمياء/, /فيزياء|كيمياء|كمياء|كيميا|فيزيا|علوم/], [/فلسف/, /فلسف|منطق|نفس|اجتماعيات/],
+    [/فيزياء|كيمياء/, /فيزياء|كيمياء|كمياء|كيميا|فيزيا|علوم/], [/فلسف/, /فلسف|منطق|نفس/],
     [/جغراف/, /جغراف|اجتماعيات/], [/تاريخ/, /تاريخ|اجتماعيات/],
     [/شريع|شرع|فقه|عقيد|قران|حديث|اصول|فرائض|تفسير|سيره|تجويد|دعوه|خطابه|حوار|مواريث|توحيد|مصطلح|تشريع/, /عقيد|فقه|حديث|تفسير|قران|سيره|تجويد|تجو|دعوه|خطابه|اصول|شرع|شريع|اسلامي|توحيد|شمائل|استحفاظ|فرائض|تلاوه|مواريث|مصطلح/]
   ];
@@ -274,7 +261,10 @@
   const LBL = ['لغة إنكليزية', 'لغة عربية', 'رياضيات', 'علم أحياء', 'فيزياء وكيمياء', 'فلسفة', 'جغرافيا', 'تاريخ', 'شريعة'];
   // الشريعة لها الأولوية: «الأصول وتاريخ التشريع» شرعي وليس تاريخاً
   const specIdx = t => SPEC[SPEC.length - 1][0].test(t) ? SPEC.length - 1 : SPEC.findIndex(x => x[0].test(t));
-  const oneRx = part => { const t = n(part), i = specIdx(t); return i >= 0 ? SPEC[i][1] : new RegExp(t.split(' ').filter(w => w.length > 2).join('|') || '$^'); };
+  const oneRx = part => { const t = n(part), i = specIdx(t);
+    if (i < 0) return new RegExp(t.split(' ').filter(w => w.length > 2).join('|') || '$^');
+    return i === SPEC.length - 1 ? SPEC[i][1] : new RegExp('(?:^|\\s)(?:و)?(?:ال)?(?:' + SPEC[i][1].source + ')'); };   // الاختصاصات غير الشرعية: بداية كلمة فقط
+  const sepToSpace = x => n(x).replace(/[\/\\\-.,،:;+()]/g, ' ').replace(/\s+/g, ' ').trim();
   const specKey = part => { const i = specIdx(n(part)); return i >= 0 ? LBL[i] : String(part).trim(); };
   // ===== مطابقة حرفية لأسماء المواد كما هي في ورقة الجدول (للاختصاصات الشرعية الدقيقة) =====
   const STOP = new Set(['اسلامي', 'اسلاميه', 'علوم', 'علم', 'ماده', 'في', 'من', 'و']);
@@ -295,7 +285,7 @@
         return subj => { const S = toks(subj); if (!S.length || !P.length) return false; return (S.every(w => P.includes(w)) && (S.length > 1 || SPEC[SH][0].test(S[0]))) || P.every(w => S.includes(w)); };
       }
       const rx = oneRx(part), nonSh = specIdx(n(part)) >= 0 && specIdx(n(part)) !== SH;   // مادة شرعية (مثل «تاريخ التشريع») لا تُحسب لموجه التاريخ/اللغة…
-      return subj => rx.test(n(subj)) && !(nonSh && SPEC[SH][0].test(n(subj)));
+      return subj => { const t = nonSh || specIdx(n(part)) >= 0 ? sepToSpace(subj) : n(subj); return rx.test(t) && !(nonSh && SPEC[SH][0].test(n(subj))); };
     });
     return subj => fns.some(f => f(subj));
   };
@@ -304,42 +294,11 @@
   const dayOf = d => d ? DAYS[new Date(d + 'T00:00:00').getDay()] || '' : '';
   let TEAM = new Set();
 
-
-  // ---------- شريط بحث المدرسة (الفلترة + جدول الحصص) ----------
-  function addSelectSearch(selId, placeholder) {
-    const sel = document.getElementById(selId); if (!sel || sel.dataset.hasSearch) return;
-    sel.dataset.hasSearch = '1';
-    const wrap = document.createElement('div'); wrap.className = 'relative mb-1.5 w-full';
-    wrap.innerHTML = `<i class="fa-solid fa-magnifying-glass absolute right-3 top-1/2 -translate-y-1/2 text-slate-400 text-xs"></i><input type="search" autocomplete="off" placeholder="${placeholder}" class="${inp} pr-8"><div class="text-[11px] text-slate-400 mt-1" data-cnt></div>`;
-    const col = document.createElement('div'); col.className = 'flex-1 min-w-0';
-    sel.parentNode.insertBefore(col, sel); col.appendChild(wrap); col.appendChild(sel);
-    const box = wrap.querySelector('input'), cnt = wrap.querySelector('[data-cnt]');
-    let master = [], busy = false;
-    const snap = () => { master = [...sel.options].map(o => ({ v: o.value, t: o.textContent })); };
-    snap();
-    new MutationObserver(() => { if (!busy) { snap(); if (box.value) run(false); } }).observe(sel, { childList: true });
-    function run(fire) {
-      const q = n(box.value), keep = sel.value;
-      const list = master.filter(o => o.v === '' || !q || n(o.t).includes(q));
-      const real = list.filter(o => o.v !== '').length;
-      if (q && !real) { cnt.textContent = 'لا توجد مدرسة بهذا الاسم'; return; }
-      busy = true;
-      sel.innerHTML = list.map(o => `<option value="${esc(o.v)}">${esc(o.t)}</option>`).join('');
-      busy = false;
-      cnt.textContent = q ? `${real} من ${master.filter(o => o.v !== '').length} مدرسة` : '';
-      const still = list.some(o => o.v === keep);
-      sel.value = still ? keep : (q ? (list.find(o => o.v !== '') || list[0]).v : (list[0] ? list[0].v : ''));
-      if (fire && sel.value !== keep) sel.dispatchEvent(new Event('change', { bubbles: true }));
-    }
-    box.addEventListener('input', () => run(true));
-    box.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); e.target.blur(); } });
-  }
-
   function injectTeamTab() {
     document.getElementById('tab-btn-filter').insertAdjacentHTML('beforebegin',
       `<button onclick="openTeamBuilder()" id="tab-btn-team" class="px-3.5 py-2 rounded-xl text-xs sm:text-sm font-semibold text-slate-600 hover:bg-slate-100 transition flex items-center gap-2"><i class="fa-solid fa-people-group"></i><span>تكوين فريق الزيارة</span></button>`);
     document.getElementById('view-filter').insertAdjacentHTML('beforebegin', `
-    <div id="view-team" class="hidden space-y-4 pb-4">
+    <div id="view-team" class="hidden space-y-4">
       <div class="bg-white p-4 rounded-2xl border border-slate-200 space-y-3">
         <h3 class="text-base font-bold text-slate-900">تكوين فريق الزيارة (تحدده أنت حسب المتاح في المدرسة)</h3>
         <div class="grid grid-cols-1 md:grid-cols-4 gap-3">
@@ -362,11 +321,10 @@
         <table class="w-full text-xs text-right"><thead class="bg-slate-50 text-slate-600"><tr><th class="p-3 w-10"></th><th class="p-3">الموجه</th><th class="p-3">الاختصاص</th><th class="p-3">حصصه في المدرسة (أسبوعياً)</th><th class="p-3">حصصه يوم الزيارة</th><th class="p-3">الحالة</th></tr></thead>
         <tbody id="t-body" class="divide-y divide-slate-100"></tbody></table>
       </div>
-      <div id="t-bar" class="md:sticky md:bottom-2 z-30 shadow-lg bg-emerald-50 border border-emerald-300 rounded-2xl">
-        <div class="t-bar-count"><b id="t-count">0</b><span>أعضاء</span></div>
-        <button onclick="clearTeam()" class="t-b-cancel"><i class="fa-solid fa-xmark"></i><span>إلغاء</span></button>
-        <button onclick="openTeamShare()" class="t-b-share"><i class="fa-brands fa-whatsapp"></i><span>إرسال</span></button>
-        <button onclick="saveTeam()" class="t-b-save"><i class="fa-solid fa-floppy-disk"></i><span>حفظ الفريق</span></button>
+      <div class="sticky bottom-28 md:bottom-2 z-30 shadow-lg flex flex-wrap items-center justify-between gap-2 bg-emerald-50 border border-emerald-300 rounded-2xl px-4 py-3">
+        <span class="text-xs font-bold text-emerald-900">عدد أعضاء الفريق: <span id="t-count">0</span></span>
+        <div class="flex flex-wrap gap-2"><button onclick="openTeamShare()" class="text-xs bg-white border border-emerald-400 text-emerald-700 px-3 py-2.5 rounded-xl font-bold"><i class="fa-brands fa-whatsapp ml-1"></i>إرسال وتصدير</button><button onclick="clearTeam()" class="text-xs bg-white border border-slate-300 px-3 py-2.5 rounded-xl font-bold">إلغاء الفريق</button>
+        <button onclick="saveTeam()" class="text-sm bg-emerald-600 hover:bg-emerald-700 text-white px-5 py-2.5 rounded-xl font-bold">حفظ الفريق</button></div>
       </div>
     </div>`);
     document.getElementById('t-school').addEventListener('change', () => loadTeam());
@@ -453,11 +411,8 @@
     const dy = document.getElementById('t-day').value, rows = (schedules[sc.id] || []).filter(r => !dy || r.day === dy);
     const chipMap = new Map(); supervisors.forEach(s => splitSpecs(s.specialty).forEach(p => { const k = chipKey(p); if (k && !chipMap.has(k)) chipMap.set(k, chipText(p)); }));
     const specs = [...chipMap.values()].map(sp => { const mt = subjMatch(sp); return [sp, rows.filter(r => mt(r.subject)).length]; });
-    const okSp = specs.filter(x => x[1] > 0).sort((a, b) => b[1] - a[1]), noSp = specs.filter(x => !x[1]);
-    document.getElementById('t-avail').innerHTML = `
-      <div class="av-head"><i class="fa-solid fa-chart-simple"></i><b>المتاح في المدرسة ${dy ? 'يوم ' + dy : 'خلال الأسبوع'}</b></div>
-      <div class="av-grid">${okSp.map(([sp, c]) => `<div class="av-tile"><span class="av-name">${esc(sp)}</span><span class="av-num">${c}</span></div>`).join('') || '<div class="av-empty">لا توجد حصص متاحة</div>'}</div>
-      ${noSp.length ? `<div class="av-none-t">بدون حصص (${noSp.length})</div><div class="av-none">${noSp.map(([sp]) => `<span>${esc(sp)}</span>`).join('')}</div>` : ''}`;
+    document.getElementById('t-avail').innerHTML = `<b>المتاح في المدرسة ${dy ? 'يوم ' + dy : 'خلال الأسبوع'}:</b> ` + specs.map(([sp, c]) =>
+      `<span class="inline-block m-0.5 px-2 py-0.5 rounded-lg border ${c ? 'bg-emerald-50 border-emerald-200 text-emerald-800' : 'bg-rose-50 border-rose-200 text-rose-700'}">${esc(sp)}: ${c} حصة</span>`).join('');
     document.getElementById('t-alert').innerHTML = warns.length ? `<div class="bg-amber-50 border border-amber-300 text-amber-900 rounded-xl p-3 text-xs space-y-1"><b>تنبيه: أعضاء مختارون بلا حصص من اختصاصهم</b>${warns.map(w => `<div>• ${esc(w)}</div>`).join('')}</div>` : '';
   }
   window.saveTeam = function () {
@@ -484,54 +439,25 @@
     persistData(); renderAllViews();
   };
 
-
-  // ---------- حصص الموجه في مدرسة (يوم الزيارة / الأسبوع) ----------
-  const _mtCache = new Map();
-  window.supClassInfo = (sup, school, dateStr) => {
-    const k = sup.specialty || ''; if (!_mtCache.has(k)) _mtCache.set(k, subjMatch(k));
-    const mt = _mtCache.get(k), rows = (schedules[school.id] || []).filter(r => mt(r.subject));
-    const dn = /^\d{4}-\d{2}-\d{2}$/.test(dateStr || '') ? dayOf(dateStr) : (DAYS.includes(dateStr) ? dateStr : '');
-    return { week: rows.length, day: dn ? rows.filter(r => r.day === dn).length : rows.length, dn, days: [...new Set(rows.map(r => r.day))] };
-  };
-
-  // ---------- لوحة التنبيهات أعلى جدول الزيارات ----------
-  function renderDistAlerts() {
-    const anchor = document.getElementById('distribution-cards'); if (!anchor) return;
-    let box = document.getElementById('dist-alerts');
-    if (!box) { anchor.insertAdjacentHTML('beforebegin', '<div id="dist-alerts" class="space-y-2 no-print"></div>'); box = document.getElementById('dist-alerts'); }
-    let html = '';
-    try { buildZoneKm(); } catch (e) { }
-    const unk = (typeof classifySchool === 'function' ? schools.filter(sc => classifySchool(sc).unknown) : []);
-    if (unk.length) html += `<div class="bg-red-50 border border-red-300 text-red-900 rounded-xl p-3 text-xs space-y-2"><b>⚠ ${unk.length} مدرسة بلا مسافة معروفة — وُضعت مؤقتاً في «الريف القريب»</b><div class="text-red-800">أضف المسافة (كم) من تعديل المدرسة ثم أعد الجدولة، حتى تُوضع في اليوم الصحيح (50 كم فأكثر = ريف بعيد).</div><div class="flex flex-wrap gap-1.5">${unk.slice(0, 30).map(sc => `<button onclick="openSchoolModal('${sc.id}')" class="bg-white border border-red-300 rounded-lg px-2 py-1 font-bold">${esc(sc.name)} ✎</button>`).join('')}</div></div>`;
-    const bad = distributionResults.map(r => ({ r, w: (r.supervisors || []).filter(x => x.warn) })).filter(x => x.w.length);
-    if (bad.length) {
-      const total = bad.reduce((t, x) => t + x.w.length, 0);
-      html += `<div class="bg-amber-50 border border-amber-300 text-amber-900 rounded-xl p-3 text-xs space-y-1.5"><b>⚠ ${total} موجه في ${bad.length} مدرسة بلا حصص من اختصاصهم يوم الزيارة</b>${bad.slice(0, 40).map(x => `<div class="flex flex-wrap items-center gap-x-2"><button onclick="openTeamBuilder('${x.r.schoolId}')" class="font-bold underline">${esc(x.r.schoolName)}</button><span>${x.w.map(m => esc(m.name) + ': ' + esc(m.warn)).join(' • ')}</span></div>`).join('')}${bad.length > 40 ? `<div>… و${bad.length - 40} مدرسة أخرى</div>` : ''}</div>`;
-    }
-    box.innerHTML = html;
-  }
-
   // ---------- بطاقات جدول الزيارات للجوال ----------
   const _renderDist = window.renderDistributionTable;
   window.renderDistributionTable = function () {
     _renderDist();
-    renderDistAlerts();
     const box = document.getElementById('distribution-cards'); if (!box) return;
     const g = document.getElementById('filter-dist-gender').value, q = n(document.getElementById('search-dist-school').value);
     const rows = distributionResults.filter(r => (g === 'ALL' || r.gender === g) && (!q || n(r.schoolName + ' ' + r.zone).includes(q)));
     box.innerHTML = rows.map(r => `
-      <div class="bg-white rounded-2xl border border-slate-200 p-3 shadow-xs">
-        <div class="flex items-start justify-between gap-2">
-          <div class="font-bold text-sm text-slate-900">${esc(r.schoolName)}</div>
-          <span class="shrink-0 text-[10px] font-bold px-2 py-0.5 rounded-full ${r.gender === 'ذكور' ? 'bg-blue-100 text-blue-800' : 'bg-rose-100 text-rose-800'}">${r.gender === 'ذكور' ? 'بنين' : 'بنات'}</span>
+      <div class="dc">
+        <div class="dc-name">${esc(r.schoolName)}</div>
+        <div class="dc-meta">
+          <span class="dc-chip ${r.gender === 'ذكور' ? 'boys' : 'girls'}">${r.gender === 'ذكور' ? 'بنين' : 'بنات'}</span>
+          <span class="dc-chip date"><i class="fa-solid fa-calendar-day"></i>${esc(fmtDate(r.visitDate))}</span>
         </div>
-        <div class="text-xs text-emerald-800 font-semibold mt-1"><i class="fa-solid fa-calendar-day ml-1"></i>${esc(fmtDate(r.visitDate))}</div>
-        ${r.zone || r.categoryLabel ? `<div class="text-[11px] text-slate-500 mt-0.5"><i class="fa-solid fa-location-dot ml-1"></i>${esc(r.zone || '')}${r.categoryLabel ? ' · ' + esc(r.categoryLabel) : ''}${r.km !== undefined && r.km !== '' && r.km !== null && !isNaN(parseFloat(r.km)) ? ' · ' + esc(String(r.km)) + ' كم' : ''}</div>` : ''}
-        <div class="mt-2 flex flex-wrap gap-1">${(r.supervisors || []).map(s => `<span class="bg-slate-50 border border-slate-200 rounded-lg px-2 py-1 text-[11px]"><b>${esc(s.name)}</b> <span class="text-emerald-700">(${esc(specLabel(s))})</span>${s.warn ? ' <span class="text-amber-500" title="' + esc(s.warn) + '">⚠</span>' : ''}</span>`).join('') || '<span class="text-amber-600 text-[11px]">لم يُحدَّد فريق</span>'}</div>
+        <div class="mt-3 flex flex-wrap gap-1.5">${(r.supervisors || []).map(s => `<span class="bg-slate-50 border border-slate-200 rounded-xl px-2.5 py-1.5 text-xs"><b>${esc(s.name)}</b> <span class="text-emerald-700">(${esc(specLabel(s))})</span>${s.warn ? ' <span class="text-amber-500" title="' + esc(s.warn) + '">⚠</span>' : ''}</span>`).join('') || '<span class="text-amber-600 text-xs font-bold">لم يُحدَّد فريق بعد</span>'}</div>
         <div class="grid grid-cols-3 gap-2 mt-3">
-          <button onclick="openTeamBuilder('${r.schoolId}')" class="bg-emerald-600 text-white text-xs font-bold rounded-xl py-2.5"><i class="fa-solid fa-people-group ml-1"></i>تحديد الفريق</button>
-          <button onclick="viewSchoolScheduleModal('${r.schoolId}')" class="bg-slate-100 text-slate-700 text-xs font-bold rounded-xl py-2.5"><i class="fa-solid fa-calendar-check ml-1"></i>الحصص</button>
-          <button onclick="openWaReport('${r.schoolId}')" class="bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-bold rounded-xl py-2.5"><i class="fa-brands fa-whatsapp ml-1"></i>تقرير</button>
+          <button onclick="openTeamBuilder('${r.schoolId}')" class="bg-emerald-600 text-white text-xs font-bold rounded-xl py-3"><i class="fa-solid fa-people-group ml-1"></i>تحديد الفريق</button>
+          <button onclick="viewSchoolScheduleModal('${r.schoolId}')" class="bg-slate-100 text-slate-700 text-xs font-bold rounded-xl py-3"><i class="fa-solid fa-calendar-check ml-1"></i>الحصص</button>
+          <button onclick="openWaReport('${r.schoolId}')" class="bg-emerald-50 text-emerald-700 border border-emerald-200 text-xs font-bold rounded-xl py-3"><i class="fa-brands fa-whatsapp ml-1"></i>تقرير</button>
         </div>
       </div>`).join('') || '<div class="p-8 text-center text-slate-400 text-xs bg-white rounded-2xl border border-slate-200">لا يوجد جدول زيارات حالياً</div>';
   };
@@ -927,32 +853,93 @@
     const o = window[fn]; window[fn] = function () { o.apply(this, arguments); mobileCards(id); };
   });
 
-  let SM_DAY = 'الأحد';
-  function renderScheduleMobile() {
-    const box = document.getElementById('schedule-mobile'); if (!box) return;
-    const id = document.getElementById('schedule-school-selector').value, list = schedules[id] || [];
-    if (!document.getElementById('sm-body')) {
-      box.innerHTML = `<div class="flex gap-1.5 overflow-x-auto pb-1" id="sm-days"></div><select id="sm-grade" class="w-full text-sm px-3 py-2"></select><div id="sm-body" class="space-y-3"></div>`;
-      document.getElementById('sm-days').addEventListener('click', e => { const b = e.target.closest('[data-day]'); if (b) { SM_DAY = b.dataset.day; renderScheduleMobile(); } });
-      document.getElementById('sm-grade').addEventListener('change', renderScheduleMobile);
-    }
-    document.getElementById('sm-days').innerHTML = DAYS.slice(0, 5).map(d => `<button data-day="${d}" class="shrink-0 px-4 py-2 rounded-xl text-xs font-bold ${d === SM_DAY ? 'bg-emerald-600 text-white' : 'bg-white border border-slate-200 text-slate-600'}">${d}</button>`).join('');
-    const sel = document.getElementById('sm-grade'), keep = sel.value, grades = [...new Set(list.map(x => x.grade))];
-    sel.innerHTML = '<option value="">كل الصفوف</option>' + grades.map(g => `<option>${esc(g)}</option>`).join('');
-    if (grades.includes(keep)) sel.value = keep;
-    const gs = sel.value ? [sel.value] : grades;
-    document.getElementById('sm-body').innerHTML = gs.map(g => {
+  // ---------- جدول الحصص: تصميم جديد + بحث (مدرسة / مادة / معلم) ----------
+  const WD = DAYS.slice(0, 5);
+  let SA_DAY = WD.includes(DAYS[new Date().getDay()]) ? DAYS[new Date().getDay()] : WD[0];
+  let SA_GRADE = '', SA_Q = '', SA_LIM = 40;
+  const PAL = [['#dbeafe', '#1e40af'], ['#dcfce7', '#166534'], ['#fef3c7', '#92400e'], ['#fce7f3', '#9d174d'],
+    ['#ede9fe', '#5b21b6'], ['#cffafe', '#155e75'], ['#ffedd5', '#9a3412'], ['#e2e8f0', '#334155']];
+  const colorOf = s => { let h = 0; const t = n(s); for (let i = 0; i < t.length; i++) h = (h * 31 + t.charCodeAt(i)) >>> 0; return PAL[h % PAL.length]; };
+  const dayIdx = d => { const i = DAYS.indexOf(d); return i < 0 ? 9 : i; };
+  function sortedGrades(list) {
+    const m = new Map(); list.forEach(r => { if (!m.has(r.grade)) m.set(r.grade, r); });
+    return [...m.values()].sort((a, b) => ((a.stage ? STAGES.indexOf(a.stage) : 99) - (b.stage ? STAGES.indexOf(b.stage) : 99)) ||
+      COLL.compare(a.track || '', b.track || '') || (a.sec - b.sec) || COLL.compare(a.grade, b.grade)).map(r => r.grade);
+  }
+  const saEmpty = (ic, msg) => `<div class="sa-empty"><i class="fa-solid ${ic}"></i>${msg}</div>`;
+
+  function renderSchedApp() {
+    const body = document.getElementById('sa-body'); if (!body) return;
+    const terms = n(SA_Q).split(' ').filter(Boolean);
+    document.getElementById('sa-clear').style.display = SA_Q ? 'flex' : 'none';
+    document.getElementById('sa-pick').style.display = terms.length ? 'none' : 'flex';
+    if (terms.length) return renderSchedSearch(body, terms);
+
+    const sel = document.getElementById('schedule-school-selector');
+    const id = sel.value, list = schedules[id] || [], sc = schools.find(x => x.id === id);
+    if (!sc || !list.length) { body.innerHTML = saEmpty('fa-calendar-xmark', 'لا يوجد جدول حصص لهذه المدرسة'); return; }
+    const grades = sortedGrades(list), teachers = new Set(list.map(r => r.teacher).filter(Boolean)).size;
+    if (!grades.includes(SA_GRADE)) SA_GRADE = '';
+    const shown = SA_GRADE ? [SA_GRADE] : grades;
+    const dayCount = d => list.filter(r => r.day === d && r.subject).length;
+
+    const cards = shown.map(g => {
       const rows = [1, 2, 3, 4, 5, 6, 7].map(p => {
-        const it = list.find(x => x.grade === g && normalizeDayName(x.day) === normalizeDayName(SM_DAY) && parseInt(x.period) === p);
-        return `<div class="flex items-center gap-3 py-2 ${p > 1 ? 'border-t border-slate-100' : ''}"><span class="w-8 h-8 shrink-0 rounded-xl bg-emerald-600 text-white text-xs font-bold flex items-center justify-center">${p}</span>${it ? `<div class="min-w-0"><div class="text-sm font-bold text-slate-900">${esc(it.subject)}</div>${it.teacher ? `<div class="text-[11px] text-slate-500">${esc(it.teacher)}</div>` : ''}</div>` : '<span class="text-xs text-slate-300">—</span>'}</div>`;
+        const it = list.find(x => x.grade === g && x.day === SA_DAY && x.period === p);
+        if (!it || !it.subject) return `<div class="sa-row empty"><span class="sa-n" style="background:#eef2f7;color:#94a3b8;font-size:13px">${p}</span><span class="text-xs" style="color:#94a3b8">لا توجد حصة</span></div>`;
+        const [bg, fg] = colorOf(it.subject);
+        return `<div class="sa-row"><span class="sa-n" style="background:${bg};color:${fg}">${p}</span><div class="min-w-0"><div class="sa-sub">${esc(it.subject)}</div><div class="sa-tch ${it.teacher ? '' : 'none'}"><i class="fa-solid fa-user-tie ml-1"></i>${it.teacher ? esc(it.teacher) : 'بلا اسم مدرس'}</div></div></div>`;
       }).join('');
-      return `<div class="bg-white rounded-2xl border border-slate-200 p-3.5 shadow-xs"><div class="text-sm font-bold text-emerald-800 mb-1"><i class="fa-solid fa-graduation-cap ml-1"></i>${esc(g)}</div>${rows}</div>`;
-    }).join('') || '<div class="p-8 text-center text-slate-400 text-xs">لا يوجد جدول لهذه المدرسة</div>';
+      return `<div class="sa-card"><h5><i class="fa-solid fa-graduation-cap"></i>${esc(g)}</h5>${rows}</div>`;
+    }).join('');
+
+    body.innerHTML = `
+      <div class="sa-head"><div class="sa-hname">${esc(sc.name)}</div>
+        <div class="sa-hsub"><span>${sc.gender === 'إناث' ? 'بنات' : 'بنين'}</span><span>${grades.length} شعبة</span><span>${teachers} مدرس</span><span>${list.length} حصة</span></div></div>
+      <div class="sa-days" id="sa-days">${WD.map(d => `<button type="button" data-day="${d}" class="sa-day ${d === SA_DAY ? 'on' : ''}">${d}<small>${dayCount(d)} حصة</small></button>`).join('')}</div>
+      <div class="sa-pick"><label for="sa-grade"><i class="fa-solid fa-graduation-cap"></i> الصف</label>
+        <select id="sa-grade"><option value="">كل الصفوف والشعب (${grades.length})</option>${grades.map(g => `<option ${g === SA_GRADE ? 'selected' : ''}>${esc(g)}</option>`).join('')}</select></div>
+      <div class="sa-grid">${cards}</div>`;
+  }
+
+  function renderSchedSearch(body, terms) {
+    const rows = FLAT.filter(r => terms.every(t => r._k.includes(t)));
+    const hitSchools = schools.filter(s => terms.every(t => n(s.name).includes(t))).slice(0, 8);
+    let html = '';
+    if (hitSchools.length) html += `<div class="sa-chips">${hitSchools.map(s => `<button type="button" class="sa-chip" data-school="${s.id}"><i class="fa-solid fa-school"></i>${esc(s.name)}</button>`).join('')}</div>`;
+    if (!rows.length) { body.innerHTML = html + saEmpty('fa-magnifying-glass', 'لا توجد نتائج مطابقة للبحث'); return; }
+    rows.sort((a, b) => COLL.compare(a.school, b.school) || dayIdx(a.day) - dayIdx(b.day) || a.period - b.period);
+    const sc = new Set(rows.map(r => r.school)).size, tc = new Set(rows.map(r => r.teacher).filter(Boolean)).size;
+    html += `<div class="sa-sum">${rows.length.toLocaleString('ar')} حصة — ${sc} مدرسة — ${tc} مدرس</div><div class="sa-grid">` +
+      rows.slice(0, SA_LIM).map(r => { const [bg, fg] = colorOf(r.subject); return `
+        <div class="sa-res">
+          <div class="sa-res-top"><span class="sa-tag p">الحصة ${r.period || '—'}</span><span class="sa-tag">${esc(r.day)}</span><span class="sa-tag" style="background:${bg};color:${fg}">${esc(r.grade)}</span></div>
+          <div class="sa-sub">${esc(r.subject) || '—'}</div>
+          <div class="sa-tch ${r.teacher ? '' : 'none'}"><i class="fa-solid fa-user-tie ml-1"></i>${r.teacher ? esc(r.teacher) : 'بلا اسم مدرس'}</div>
+          <div class="sa-school"><i class="fa-solid fa-school ml-1"></i>${esc(r.school)}</div>
+        </div>`; }).join('') + '</div>';
+    if (rows.length > SA_LIM) html += `<button type="button" class="sa-more" data-more="1">عرض المزيد (${(rows.length - SA_LIM).toLocaleString('ar')} متبقية)</button>`;
+    body.innerHTML = html;
+  }
+
+  let saBound = false;
+  function bindSchedApp() {
+    if (saBound || !document.getElementById('sa-q')) return; saBound = true;
+    const q = document.getElementById('sa-q'); let t;
+    q.addEventListener('input', () => { clearTimeout(t); t = setTimeout(() => { SA_Q = q.value; SA_LIM = 40; renderSchedApp(); }, 200); });
+    q.addEventListener('keydown', e => { if (e.key === 'Enter') { e.preventDefault(); q.blur(); } });
+    document.getElementById('sa-clear').addEventListener('click', () => { q.value = ''; SA_Q = ''; renderSchedApp(); });
+    document.getElementById('sa-body').addEventListener('click', e => {
+      const d = e.target.closest('[data-day]'); if (d) { SA_DAY = d.dataset.day; return renderSchedApp(); }
+      const sc = e.target.closest('[data-school]');
+      if (sc) { document.getElementById('schedule-school-selector').value = sc.dataset.school; q.value = ''; SA_Q = ''; SA_GRADE = ''; renderSchedApp(); return window.scrollTo(0, 0); }
+      if (e.target.closest('[data-more]')) { SA_LIM += 60; renderSchedApp(); }
+    });
+    document.getElementById('sa-body').addEventListener('change', e => { if (e.target.id === 'sa-grade') { SA_GRADE = e.target.value; renderSchedApp(); } });
+    document.getElementById('schedule-school-selector').addEventListener('change', () => { SA_GRADE = ''; });
   }
   const IS_MOBILE = () => window.matchMedia('(max-width: 767px)').matches;
-  const _rs = window.renderSchoolScheduleView;
-  // على الجوال لا نبني جدول سطح المكتب المخفي (يُبطئ الصفحة)
-  window.renderSchoolScheduleView = function () { if (!IS_MOBILE()) _rs(); renderScheduleMobile(); };
+  window.renderSchoolScheduleView = function () { bindSchedApp(); renderSchedApp(); };
   // تقرير الطباعة لا يُبنى على الجوال إلا عند الطباعة فعلاً
   const _pp = window.prepareOfficialPrintReport;
   if (typeof _pp === 'function') {
@@ -960,15 +947,22 @@
     window.addEventListener('beforeprint', () => { try { _pp(); } catch (e) { console.error(e); } });
   }
   function injectMobileTables() {
-    const c = document.getElementById('schedule-display-container');
-    c.classList.add('hidden', 'md:block');
-    c.insertAdjacentHTML('afterend', '<div id="schedule-mobile" class="md:hidden space-y-3"></div>');
-    renderScheduleMobile(); mobileCards('supervisors-table-body'); mobileCards('schools-table-body');
+    bindSchedApp(); renderSchedApp(); mobileCards('supervisors-table-body'); mobileCards('schools-table-body');
+  }
+
+  // ---------- عرض التاريخ المختار بوضوح تحت حقول التاريخ (بعض الجوالات تُخفي قيمتها) ----------
+  function attachDateHints() {
+    ['plan-start-date', 'plan-end-date', 't-date'].forEach(id => {
+      const el = document.getElementById(id); if (!el || el.dataset.hint) return; el.dataset.hint = '1';
+      el.insertAdjacentHTML('afterend', '<div class="date-hint"></div>');
+      const h = el.nextElementSibling, upd = () => { h.textContent = el.value ? '📅 ' + fmtDate(el.value) : 'لم يُحدَّد تاريخ'; };
+      el.addEventListener('change', upd); el.addEventListener('input', upd); upd();
+    });
   }
 
   // ---------- الإقلاع ----------
   window.addEventListener('DOMContentLoaded', async () => {
-    injectTab(); injectTeamTab(); addSelectSearch('f-school', 'ابحث عن مدرسة…'); addSelectSearch('schedule-school-selector', 'ابحث عن مدرسة…'); injectBottomNav(); buildMobileHome(); injectMobileTables();
+    injectTab(); injectTeamTab(); injectBottomNav(); buildMobileHome(); injectMobileTables(); attachDateHints();
     if (!CFG.SCHEDULE_CSV || !CFG.SUPERVISORS_CSV) return;
     window.matchMedia('(max-width: 767px)').addEventListener('change', () => { try { renderFilter(); } catch (e) { } });
     // 1) عرض آخر بيانات محفوظة فوراً  2) جلب الجديد في الخلفية وتحديث الشاشة إن تغيّر
