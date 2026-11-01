@@ -86,8 +86,11 @@
                 <button onclick="runIntelligentDistribution()" class="tb tb-primary">
                     <i class="fa-solid fa-calendar-check"></i><span>جدولة الزيارات</span>
                 </button>
-                <button onclick="exportComprehensiveExcel()" class="tb">
+                <button onclick="downloadVisitsExcel()" class="tb">
                     <i class="fa-solid fa-file-excel" style="color:#16a34a"></i><span>تصدير Excel</span>
+                </button>
+                <button onclick="downloadVisitsPdf()" class="tb">
+                    <i class="fa-solid fa-file-pdf" style="color:#dc2626"></i><span>تصدير PDF</span>
                 </button>
                 <button onclick="openWaReport()" class="tb">
                     <i class="fa-brands fa-whatsapp" style="color:#16a34a"></i><span>تقرير واتساب</span>
@@ -1728,6 +1731,7 @@
         }
     </script>
     <script src="data-loader.js?v=16"></script>
+    <script src="visits-table.js?v=1"></script>
     <script>
         // تحديث فوري: التسجيل + فحص النسخة الجديدة + إعادة التحميل تلقائياً
         if ('serviceWorker' in navigator) {
