@@ -141,12 +141,16 @@
     const box = document.getElementById('vt-scroll'); if (!box) return;
     const g = (document.getElementById('filter-dist-gender') || {}).value;
     const q = (document.getElementById('search-dist-school') || {}).value;
-    const weeks = window.groupVisitsByWeek(window.buildVisitsRows({ gender: g, q }));
+    const allRows = window.buildVisitsRows({ gender: g, q });
+    const weeks = window.groupVisitsByWeek(allRows);
+    const cnt = {}; allRows.forEach(r => { if (r.cells[0]) cnt[r.cells[0]] = (cnt[r.cells[0]] || 0) + 1; });
+    const dup = Object.values(cnt).filter(c => c > 1).length;
+    const warn = dup ? `<div style="padding:12px 14px;background:#fffbeb;border-bottom:1px solid #fcd34d;color:#92400e;font-size:12px;font-weight:700;display:flex;flex-wrap:wrap;gap:10px;align-items:center;justify-content:space-between"><span>⚠ في ${dup} يوم أكثر من زيارة — هذا جدول قديم أو معدَّل يدوياً. أعد الجدولة لتصبح زيارة واحدة في اليوم.</span><button class="vt-btn" onclick="runIntelligentDistribution()">إعادة الجدولة الآن</button></div>` : '';
     if (window.__vtKey !== g + '|' + q) { window.__vtKey = g + '|' + q; window.__vtLim = 3; }
     if (!weeks.length) { box.innerHTML = '<div style="padding:32px;text-align:center;color:#94a3b8;font-size:13px">لا يوجد جدول زيارات حالياً. اضغط «جدولة الزيارات» لإنشائه</div>'; return; }
     const shown = weeks.slice(0, window.__vtLim);
     const more = weeks.length > shown.length ? `<div style="padding:12px;text-align:center"><button class="vt-btn" onclick="window.__vtLim+=3;renderDistributionTable()">عرض المزيد من الأسابيع (${weeks.length - shown.length})</button></div>` : '';
-    box.innerHTML = shown.map(w => `<div class="vt-wh">${esc(w.label)} <span style="font-weight:600;color:#64748b">· ${w.rows.length} صفاً</span></div><div class="vt-scroll">${tableHtml(w.rows)}</div>`).join('') + more;
+    box.innerHTML = warn + shown.map(w => `<div class="vt-wh">${esc(w.label)} <span style="font-weight:600;color:#64748b">· ${w.rows.length} صفاً</span></div><div class="vt-scroll">${tableHtml(w.rows)}</div>`).join('') + more;
   };
 
   // ---------- أدوات مشتركة ----------
