@@ -3,7 +3,7 @@
 // فريق الذكور وفريق الإناث يزوران في اليوم نفسه مدرستين من المنطقة نفسها ما أمكن.
 (function () {
   const DAYS_AR = ['الأحد', 'الإثنين', 'الثلاثاء', 'الأربعاء', 'الخميس', 'الجمعة', 'السبت'];
-  const HEAD = ['التاريخ', 'اليوم', 'فريق الذكور', 'المدرسة', 'فريق الإناث', 'المدرسة '];
+  const HEAD = ['التاريخ', 'اليوم', 'فريق الذكور', 'المدرسة', 'فريق الإناث', 'المدرسة 2'];
   const HEAD_BG = ['#5B9BD5', '#5B9BD5', '#5B9BD5', '#5B9BD5', '#FFD966', '#5B9BD5'];
   const BODY_BG = ['#BDD7EE', '#FFFFFF', '#DDEBF7', '#FFFFFF', '#FFD966', '#E2EFDA'];
   const LINE = '#9DC3E6';
@@ -331,29 +331,32 @@ window.addEventListener('load',function(){fit();if(document.fonts&&document.font
       return t.map(s => ({ id: s.id, name: s.name, specialty: s.specialty, phone: s.phone, gender: s.gender }));
     }
 
-    const out = []; let slotNo = 0, crowded = 0;
-    ['far', 'city', 'near'].forEach(k => {
-      const slots = makeSlots(cat[k]), days = DAYSET[k], n = slots.length, D = days.length;
-      const perDay = {};
-      slots.forEach((sl, i) => {
-        const date = iso(days[Math.floor(i * D / n)]); perDay[date] = (perDay[date] || 0) + 1;
-        slotNo++;
-        [sl.m, sl.f].forEach(x => {
-          if (!x) return;
-          out.push({ schoolId: x.s.id, schoolName: x.s.name, gender: x.s.gender, stage: x.s.stage, sections: x.s.sections, zone: x.info.zone, km: x.info.km,
-            visitDate: date, slot: slotNo, supervisors: teamFor(x.s, date) });
-        });
+    // زيارة واحدة فقط لكل فريق في اليوم: الأحد=بعيد، الإثنين=مدينة، الثلاثاء-الخميس=قريب
+    // (إن فرغت قائمة نوعٍ ما تُملأ أيامه بما تبقى من الأنواع الأخرى كي لا تبقى أيام فارغة)
+    const Q = { far: makeSlots(cat.far), city: makeSlots(cat.city), near: makeSlots(cat.near) };
+    const own = d => d === 0 ? 'far' : d === 1 ? 'city' : 'near';
+    const left = () => Q.far.length + Q.city.length + Q.near.length;
+    const out = []; let slotNo = 0, last = null, spilled = 0;
+    for (let d = new Date(sd), guard = 0; left() > 0 && guard < 1500; d = addDays(d, 1), guard++) {
+      if (d.getDay() > 4) continue;
+      let k = own(d.getDay());
+      if (!Q[k].length) { k = ['far', 'near', 'city'].find(x => Q[x].length); spilled++; }
+      const sl = Q[k].shift(), date = iso(d); slotNo++; last = new Date(d);
+      [sl.m, sl.f].forEach(x => {
+        if (!x) return;
+        out.push({ schoolId: x.s.id, schoolName: x.s.name, gender: x.s.gender, stage: x.s.stage, sections: x.s.sections, zone: x.info.zone, km: x.info.km,
+          visitDate: date, slot: slotNo, supervisors: teamFor(x.s, date) });
       });
-      crowded += Object.values(perDay).filter(c => c > 1).length;
-    });
+    }
 
     distributionResults = manual.concat(out);
     persistData(); renderAllViews(); switchView('distribution');
     const weeks = new Set(out.map(r => parseVisit(r.visitDate).week)).size;
-    let msg = `تمت جدولة ${out.length} مدرسة على ${weeks} أسابيع: الأحد للريف البعيد، الإثنين لمدينة حلب، الثلاثاء–الخميس للريف القريب`;
+    let msg = `تمت جدولة ${out.length} مدرسة على ${weeks} أسابيع بزيارة واحدة في اليوم: الأحد للريف البعيد، الإثنين لمدينة حلب، الثلاثاء–الخميس للريف القريب`;
+    if (last && last > ed) msg += ` — امتدت الخطة حتى ${dmy(last)} بعد تاريخ النهاية لأن الزيارة واحدة في اليوم`;
+    if (spilled) msg += ` — في ${spilled} يوم زيارة من نوعٍ آخر لأن قائمة نوع ذلك اليوم انتهت`;
     if (unknown) msg += ` — ${unknown} مدرسة بلا منطقة/مسافة في config.js عُدّت ريفاً قريباً`;
-    if (allMode && crowded) msg += ` — في ${crowded} يوم تُزار أكثر من مدرسة؛ وسّع الفترة الزمنية لتخفيفها`;
-    showToast(msg, (unknown || (allMode && crowded)) ? 'info' : 'success');
+    showToast(msg, (unknown || spilled || (last && last > ed)) ? 'info' : 'success');
   };
 
   window.addEventListener('DOMContentLoaded', () => { try { ensureUi(); window.renderDistributionTable(); } catch (e) { console.error(e); } });
